@@ -1,0 +1,189 @@
+# pi-setup — local inference enablement suite
+
+Bun + Turborepo monorepo that manages the inference engines behind the
+[pi](https://pi.dev) harness on the dual **RTX PRO 6000 Blackwell (2×96GB)**
+workstation. It replaces the old `switch-engine` / `*-serve.sh` bash scripts
+(preserved in [`legacy/`](legacy/)) with a single Effect-based CLI: **`pi-engine`**.
+
+## Engines
+
+| Engine | Backend | Port | systemd unit | pi provider | State |
+| ------ | ------- | ---- | ------------ | ----------- | ----- |
+| `llama` | llama.cpp CUDA fork (`~/src/llama.cpp-v4`) | 8080 | `llama-v4.service` | `deepseek-v4` | ✅ working |
+| `vllm` | vLLM + DSpark spec-dec (Docker, Fraser Price image) | 8081 | `vllm-dspark.service` | `deepseek-v4-dspark` | ✅ working — fastest (~140 t/s) |
+| `ds4` | [DwarfStar](https://github.com/antirez/ds4) (antirez) | 8082 | `ds4.service` | `deepseek-v4-ds4` | needs `setup ds4` |
+
+Only one engine runs at a time (VRAM constraint). Mutual exclusion is enforced
+twice: the switch flow stops everything else first, and every unit declares
+`Conflicts=` on the others (and on `lmstudio.service`, back when LM Studio was
+installed — the hooks are generated only if `lms` exists).
+
+## Why the old `switch-engine llama` never stood the stack up
+
+It started llama via `nohup` instead of systemd, which skipped the unit's
+`ExecStartPre=lms daemon down` and the `Conflicts=lmstudio.service` — so LM
+Studio kept ~50GB of VRAM and the "stack" was half-up. `pi-engine use` always
+goes through systemd and additionally waits for VRAM to actually be released
+before starting the next engine.
+
+## Usage
+
+```sh
+pi-engine status              # engines, LM Studio, docker, pi default, VRAM
+pi-engine use llama           # the working setup
+pi-engine use vllm            # the DSpark experiment (long model load)
+pi-engine use ds4             # DwarfStar
+pi-engine use council         # ornith-council: Ornith-397B + Qwen3-4B scout (bench champion)
+pi-engine stop [--lmstudio]   # stop all engines
+pi-engine logs llama -n 100 [-f]
+pi-engine doctor              # check binaries/models/images/units
+pi-engine install             # (re)write units + shims, register pi providers
+pi-engine setup ds4 [--variant q2-q4-imatrix] [--cuda-arch sm_120] [--skip-download]
+```
+
+`switch-engine` still works as a compat wrapper (`switch-engine llama` →
+`pi-engine use llama`).
+
+`use <engine>` does the **complete** stack switch:
+
+1. preflight (binary/model/image present)
+2. stop LM Studio (`lms daemon down` + unit) and the other engines
+3. wait until both GPUs report < 6GB used
+4. `systemctl --user start <unit>` and poll `/health` until ready
+5. update `~/.pi/agent/models.json` (provider) + `settings.json` (defaults)
+6. verify `/v1/models`
+
+Then restart pi (or open a new session) to pick up the provider change.
+
+## DS4 notes (maximizing model size on this box)
+
+DwarfStar has **no single-node multi-GPU**, and this machine has 125GB system
+RAM, so:
+
+- `q2-q4-imatrix` (default, installed) — 2-bit with last 6 layers 4-bit.
+  Measured on this box: its ~96GB of tensor spans do **not** fit one 96GB
+  card fully resident, so the unit bakes in `DS4_SSD_STREAMING=1`,
+  `CUDA_VISIBLE_DEVICES=1` (GPU0 hosts the desktop; llama needs both GPUs, so
+  the pin lives only in ds4.service), `DS4_CTX=100000`, and a 64GB expert
+  cache. Works correctly but generates at **~1.2 t/s** (expert-miss bound) —
+  treat ds4 as an inspection/consultation engine, not the pi daily driver.
+- `q4-imatrix` / `pro-q2-imatrix` — bigger quants / DeepSeek V4 PRO, same
+  streaming path, slower still. `pi-engine setup ds4 --variant pro-q2-imatrix`.
+- `--with-mtp` on setup downloads ds4's optional MTP draft GGUF (its
+  DSpark-style speculative path; upstream: "slight speedup", greedy-only).
+  Enable with `Environment=DS4_MTP=auto`.
+- distributed mode needs a second machine (coordinator/worker over TCP).
+
+## pi-bench — engines vs Mix-of-Models council
+
+`apps/pi-bench` benchmarks the single-model engines against a **council**:
+several smaller models served concurrently from the local model store,
+orchestrated as fan-out → synthesis.
+
+Models live in an engine-agnostic store: `~/Machine/models/gguf/<model>/` and
+`~/Machine/models/hf/<model>/` (override roots with `MODEL_STORE`,
+`LLAMA_GGUF_DIR`, `MODEL_DIR`).
+
+| Config | What answers |
+| ------ | ------------ |
+| `vllm-dspark` / `llama-v4` | DeepSeek-V4-Flash 284B via the existing engines |
+| `chairman-solo` | MiniMax-M2.7 Q4_K_M alone (control for the council) |
+| `council` | gemma-4-31B (GPU0, "Skeptic") + Qwen3.6-35B-A3B (GPU1, "Architect") advise in parallel; MiniMax-M2.7 (split 47,53 across both GPUs) synthesizes |
+| `council-v2` | council + a constraint-checker pass: qwen audits the synthesis against the task's explicit constraints; chairman revises once on violations |
+| `council-vllm` | two-phase: MiniMax ("Architect") + gemma ("Skeptic") write briefs while the council serves, then vLLM+DSpark synthesizes and self-checks. Two-phase because DeepSeek at TP=2 leaves ~7GB/GPU — MiniMax cannot co-reside with it |
+
+All three council members are co-resident: ~93GB + ~91GB of 2×96GB. Ports
+9100–9102, spawned directly (no systemd) and torn down after the session.
+
+```sh
+bun run bench -- run                        # all configs × all tasks
+bun run bench -- run --configs council-v2,council-vllm
+bun run bench -- pack --dir apps/pi-bench/results/<runId>   # rebuild reports
+```
+
+### Consulting the council from pi
+
+The members are registered as pi providers (`council-minimax-m2.7`,
+`council-gemma-4-31b`, `council-qwen3.6-35b-a3b`). They answer only while the
+council is serving:
+
+```sh
+bun run bench -- council up        # stops engines, serves members (Ctrl-C to stop)
+pi-engine use vllm                 # restore pi's engine afterwards
+```
+
+pi's default provider is never touched — switch models inside a pi session to
+consult a member, or wire them into an A2A/swarm extension.
+
+Tasks live in `apps/pi-bench/tasks/*.json` — two objective (bug-hunt,
+api-critique: seeded defects with hidden answer keys in `judgeNotes`) and two
+creative (glyph-esolang, race-noir). A run writes `run.json`, `metrics.md`
+(identified speeds), and a **blind judge pack** (`judge-pack.md` with responses
+shuffled per task via a seeded PRNG; `mapping.json` unblinds after scoring).
+The runner ends on the vllm engine so pi's default provider still works.
+
+## Repo layout
+
+```
+apps/pi-engine/       @effect/cli app (bin: pi-engine)
+apps/pi-bench/        benchmark harness: engines vs council, blind judge packs
+packages/core/        engine registry + systemd/docker/health/gpu/pi-config +
+                      foreground serve runners (ports of the legacy scripts)
+legacy/               original bash scripts and units, for reference
+```
+
+## vLLM fix history (2026-07-05)
+
+The "GPUs pin at 100% forever" hang had three stacked causes, all fixed in
+`packages/core/src/serve/vllm.ts`:
+
+1. **PCIe P2P is broken on this platform** (AMD IOMMU + NODE topology; the
+   driver reports peer access as available but transfers hang). Fixed with
+   `NCCL_P2P_DISABLE=1` and `--disable-custom-all-reduce`.
+2. **KV cache never fit**: 0.85 utilization at 262k context left −1.31GiB for
+   KV. Defaults are now 0.93 + 131072 (each +0.01 util ≈ +0.94GiB KV).
+3. **Missing `--served-model-name`**: vLLM exposed the model as "/model", so
+   pi's configured id 404'd.
+
+Measured after the fix: **~140 t/s** generation with DSpark speculative
+decoding — the fastest engine on this machine (llama.cpp: tens; ds4: ~1.2).
+No recompilation was needed; the image ships sm_120 kernels.
+
+## P2P fast path (`pi-engine probe p2p`)
+
+`serve vllm` picks its inter-GPU path from a persisted probe verdict
+(`~/.local/state/pi-engine/state.json`): P2P broken/unprobed → SHM fallback;
+P2P working → NCCL P2P + custom allreduce. Explicit `NCCL_P2P_DISABLE` /
+`VLLM_CUSTOM_ALLREDUCE` env always wins.
+
+Measured 2026-07-05 after `iommu=pt` fixed P2P: 141.4 vs 139.5 t/s on an
+identical single-request workload (~1-2%) — DSpark spec-dec already amortizes
+allreduce latency ~4× per token. The fast path should matter more with
+`MAX_NUM_SEQS` > 1 (concurrent pi subagents) and long prefills.
+
+The probe (`pi-engine probe p2p`) runs a real 2-GPU NCCL allreduce with P2P
+forced on ([scripts/nccl-p2p-test.py](scripts/nccl-p2p-test.py)) and treats a
+120s hang as "broken" — the same test that diagnosed the original failure.
+
+To fix P2P at the platform level: add ` iommu=pt` to `KERNEL_CMDLINE[default]`
+in `/etc/default/limine`, run `sudo limine-update`, reboot, then
+`pi-engine probe p2p` → `pi-engine use vllm`. The probe re-verifies after
+every kernel/BIOS change; some boards keep P2P broken regardless (ACS quirks),
+in which case the verdict simply stays "broken" and nothing regresses.
+
+Runtime tunables (env, read by the serve runners): `NCMOE`, `TS` (llama);
+`VLLM_IMAGE`, `TP_SIZE`, `GPU_MEM_UTIL`, `MAX_MODEL_LEN`, `MAX_NUM_SEQS`,
+`DSPARK_TOKENS`, `VLLM_EXTRA_ENV` (vllm); `DS4_PORT`, `DS4_CTX`, `DS4_MODEL`,
+`DS4_KV_DISK_MB`, `DS4_SSD_STREAMING`, `DS4_EXTRA_ARGS` (ds4). Set them per
+unit with `systemctl --user edit <unit>`.
+
+## Development
+
+```sh
+bun install
+bun run typecheck        # turbo run typecheck
+bun run engine -- status # run the CLI from the repo
+```
+
+`pi-engine install` embeds the absolute bun path (`process.execPath`) and repo
+path into the units and shims — re-run it after moving the repo or upgrading bun.

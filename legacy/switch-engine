@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Switch between inference engines for DeepSeek-V4-Flash
+# Usage: switch-engine [llama|vllm|vllm-dspark|status]
+
+PI_SETTINGS="$HOME/.pi/agent/settings.json"
+PI_MODELS="$HOME/.pi/agent/models.json"
+
+show_usage() {
+  echo "Usage: switch-engine [COMMAND]"
+  echo ""
+  echo "Commands:"
+  echo "  llama         Switch to llama.cpp (port 8080) — stops vLLM first"
+  echo "  vllm          Switch to vLLM + DSpark (port 8081) — stops llama first"
+  echo "  status        Show which engine is currently active and server health"
+  echo ""
+  echo "Only one engine runs at a time (VRAM constraint)."
+}
+
+check_health() {
+  local port=$1
+  local name=$2
+  if curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+    echo "  ✅ $name (port $port) — RUNNING"
+    return 0
+  elif curl -sf "http://127.0.0.1:$port/v1/models" >/dev/null 2>&1; then
+    echo "  ✅ $name (port $port) — RUNNING"
+    return 0
+  else
+    echo "  ⬜ $name (port $port) — STOPPED"
+    return 1
+  fi
+}
+
+switch_to_llama() {
+  echo "Switching to llama.cpp (port 8080)..."
+
+  # Stop vLLM first to free VRAM
+  docker rm -f vllm-dspark 2>/dev/null || true
+  sleep 2
+
+  # Start llama via the shell script directly (more reliable than systemctl)
+  if curl -sf "http://127.0.0.1:8080/health" >/dev/null 2>&1 || curl -sf "http://127.0.0.1:8080/v1/models" >/dev/null 2>&1; then
+    echo "llama.cpp already running on port 8080"
+  else
+    echo "Starting llama.cpp..."
+    nohup "$HOME/.local/bin/llama-v4-serve.sh" > /tmp/llama-v4.log 2>&1 &
+    echo "Waiting for server..."
+    for i in $(seq 1 60); do
+      if curl -sf "http://127.0.0.1:8080/health" >/dev/null 2>&1; then
+        echo "llama.cpp is ready!"
+        break
+      fi
+      sleep 5
+    done
+  fi
+
+  # Update settings.json to point to llama provider
+  python3 -c "
+import json
+
+settings_path = '$PI_SETTINGS'
+with open(settings_path) as f:
+    cfg = json.load(f)
+
+cfg['defaultProvider'] = 'deepseek-v4'
+cfg['defaultModel'] = 'deepseek-v4-flash'
+
+with open(settings_path, 'w') as f:
+    json.dump(cfg, f, indent=2)
+
+print('✅ Default provider set to: deepseek-v4 (llama.cpp, port 8080)')
+" 2>&1 || {
+    # Fallback: direct sed
+    sed -i 's/"defaultProvider": ".*"/"defaultProvider": "deepseek-v4"/' "$PI_SETTINGS"
+    sed -i 's/"defaultModel": ".*"/"defaultModel": "deepseek-v4-flash"/' "$PI_SETTINGS"
+    echo "✅ Default provider set to: deepseek-v4 (llama.cpp, port 8080)"
+  }
+}
+
+switch_to_vllm() {
+  echo "Switching to vLLM + DSpark (port 8081)..."
+
+  # Stop llama first to free VRAM
+  if systemctl --user is-active llama-v4.service >/dev/null 2>&1; then
+    echo "Stopping llama.cpp..."
+    systemctl --user stop llama-v4.service
+    sleep 3
+  fi
+
+  # Start vLLM via script (systemd docker.service issue)
+  if curl -sf "http://127.0.0.1:8081/health" >/dev/null 2>&1 || curl -sf "http://127.0.0.1:8081/v1/models" >/dev/null 2>&1; then
+    echo "vLLM + DSpark already running on port 8081"
+  else
+    echo "Starting vLLM + DSpark (this takes a few minutes to load the model)..."
+    nohup "$HOME/.local/bin/vllm-dspark-serve.sh" > /tmp/vllm-dspark.log 2>&1 &
+    echo "Waiting for server (check /tmp/vllm-dspark.log for progress)..."
+    for i in $(seq 1 120); do
+      if curl -sf "http://127.0.0.1:8081/health" >/dev/null 2>&1; then
+        echo "vLLM + DSpark is ready!"
+        break
+      fi
+      sleep 10
+    done
+  fi
+
+  # Update settings.json to point to vllm provider
+  python3 -c "
+import json
+
+settings_path = '$PI_SETTINGS'
+with open(settings_path) as f:
+    cfg = json.load(f)
+
+cfg['defaultProvider'] = 'deepseek-v4-dspark'
+cfg['defaultModel'] = 'deepseek-v4-flash-dspark'
+
+with open(settings_path, 'w') as f:
+    json.dump(cfg, f, indent=2)
+
+print('✅ Default provider set to: deepseek-v4-dspark (vLLM + DSpark, port 8081)')
+" 2>&1 || {
+    sed -i 's/"defaultProvider": ".*"/"defaultProvider": "deepseek-v4-dspark"/' "$PI_SETTINGS"
+    sed -i 's/"defaultModel": ".*"/"defaultModel": "deepseek-v4-flash-dspark"/' "$PI_SETTINGS"
+    echo "✅ Default provider set to: deepseek-v4-dspark (vLLM + DSpark, port 8081)"
+  }
+}
+
+show_status() {
+  echo "Inference Engine Status"
+  echo "========================"
+  echo ""
+
+  # Check which engine pi is configured to use
+  local current_provider=$(python3 -c "
+import json
+with open('$PI_SETTINGS') as f:
+    cfg = json.load(f)
+print(cfg.get('defaultProvider', 'unknown'))
+" 2>/dev/null || grep -o '"defaultProvider": "[^"]*"' "$PI_SETTINGS" | cut -d'"' -f4)
+
+  echo "Pi default provider: $current_provider"
+  echo ""
+
+  check_health 8080 "llama.cpp (DeepSeek-V4-Flash)"
+  check_health 8081 "vLLM + DSpark (DeepSeek-V4-Flash-DSpark)"
+
+  echo ""
+  echo "Services:"
+  if systemctl --user is-active llama-v4.service >/dev/null 2>&1; then
+    echo "  ✅ llama-v4.service — active"
+  else
+    echo "  ⬜ llama-v4.service — not running"
+  fi
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q vllm-dspark; then
+    echo "  ✅ vllm-dspark (Docker) — running"
+  else
+    echo "  ⬜ vllm-dspark (Docker) — not running"
+  fi
+}
+
+# --- Main ---
+
+case "${1:-status}" in
+  llama|llama.cpp)
+    switch_to_llama
+    ;;
+  vllm|vllm-dspark|dspark)
+    switch_to_vllm
+    ;;
+  status|--status|-s)
+    show_status
+    ;;
+  --help|-h)
+    show_usage
+    ;;
+  *)
+    echo "Unknown command: $1"
+    show_usage
+    exit 1
+    ;;
+esac

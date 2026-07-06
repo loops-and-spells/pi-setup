@@ -1,0 +1,17 @@
+{
+  "id": "race-noir",
+  "title": "The Case of the Vanishing Tickets (noir + race condition)",
+  "temperature": 0.8,
+  "maxTokens": 16384,
+  "prompt": "Write a hard-boiled noir detective story of 350–450 words titled \"The Case of the Vanishing Tickets\". The client: a concert venue whose web shop sold 212 tickets for a 200-seat hall. The culprit your detective must uncover: two application servers each read `tickets_remaining` from the shared store, decide there is stock, and write back the decremented value — a non-atomic read-modify-write, so concurrent sales overwrite each other's decrements. Constraints: authentic noir voice throughout; the actual technical mechanism must be woven into the plot precisely enough that a backend engineer would nod along (interleaving, lost update); no code, no bullet points, no headings inside the story; the detective must catch the culprit in the act, not guess.\n\nAfter the story, add a short section titled \"Case Closed\" (outside the word count): one paragraph, in plain engineering prose, giving the correct fix for this exact bug and one sentence on why a mutex on each app server alone would NOT fix it.",
+  "hardConstraints": {
+    "requiredStrings": ["The Case of the Vanishing Tickets", "Case Closed"],
+    "wordRange": {
+      "min": 350,
+      "max": 450,
+      "beforeMarker": "Case Closed",
+      "stripPatterns": ["#? ?\\**The Case of the Vanishing Tickets\\**"]
+    }
+  },
+  "judgeNotes": "Score /100. Technical accuracy 40: the story must depict a genuine lost-update interleaving (both readers see the same value, both write back, one decrement vanishes) — vague 'the servers were confused' loses most of these points; the oversell arithmetic should be plausible. Craft 30: sustained noir voice, actual plot with the mechanism as the reveal, detective observes the interleaving rather than being told. Constraints 20: 350–450 words (count them), no code/bullets/headings inside the story, title and Case Closed section present. Fix 10: atomic decrement (e.g. Redis DECR/DECRBY with floor check, or WATCH/MULTI, or a Lua script, or DB row lock / conditional UPDATE) AND correctly notes a per-server mutex fails because the race is across processes/machines, not threads."
+}

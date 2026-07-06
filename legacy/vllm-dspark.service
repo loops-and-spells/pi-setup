@@ -1,0 +1,14 @@
+[Unit]
+Description=DeepSeek V4-Flash-DSpark via vLLM + Docker (DSpark speculative decoding)
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f vllm-dspark 2>/dev/null
+ExecStart=/home/demiurge/.local/bin/vllm-dspark-serve.sh
+# Auto-recover from crashes
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

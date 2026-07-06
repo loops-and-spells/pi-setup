@@ -1,0 +1,12 @@
+{
+  "id": "glyph-esolang",
+  "title": "Design and implement the Glyph esoteric language",
+  "temperature": 0.7,
+  "maxTokens": 32768,
+  "hardConstraints": {
+    "requiredStrings": ["Hello, World!"],
+    "execExamples": true
+  },
+  "prompt": "Design a tiny stack-based esoteric programming language called Glyph whose entire syntax consists of punctuation characters (no letters or digits in source code). Deliver three things, fully consistent with each other:\n\n1. A language spec of at most 600 words: data model, every token and its semantics, how numbers and output are expressed, and error behavior.\n2. A complete interpreter in a single Python 3 file (standard library only) that reads a Glyph program from a file path given as argv[1], or from stdin if no argument is given.\n3. Three example programs, each with its exact expected output: (a) print `Hello, World!`, (b) FizzBuzz from 1 to 20, and (c) a program of your own invention that shows off the most distinctive feature of your language, with a one-paragraph explanation of why it is interesting.\n\nCorrectness matters most: the examples must produce exactly the stated output when run through your interpreter.",
+  "judgeNotes": "Score /100. Correctness 40: extract the interpreter and examples, run them; full marks only if all three examples produce their stated output exactly (a: 20 pts split across examples is fine; partial credit per working example). Spec 25: complete (all tokens defined, number/output story coherent), unambiguous, within word budget. Creativity 20: is the language genuinely distinctive (novel evaluation model, elegant constraint) or a brainfuck reskin? Example (c) should showcase something the judge finds actually interesting. Code quality 15: single file, stdlib only, readable, handles argv/stdin as specified, sane error behavior."
+}

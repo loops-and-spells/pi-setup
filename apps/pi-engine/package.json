@@ -1,0 +1,23 @@
+{
+  "name": "pi-engine",
+  "version": "0.2.0",
+  "type": "module",
+  "bin": {
+    "pi-engine": "./src/main.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "bun run src/main.ts"
+  },
+  "dependencies": {
+    "@effect/cli": "latest",
+    "@effect/platform": "latest",
+    "@effect/platform-bun": "latest",
+    "@pi-setup/core": "workspace:*",
+    "effect": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

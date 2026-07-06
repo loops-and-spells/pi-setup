@@ -1,0 +1,19 @@
+{
+  "name": "pi-setup",
+  "private": true,
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "engine": "bun run apps/pi-engine/src/main.ts",
+    "bench": "bun run apps/pi-bench/src/main.ts"
+  },
+  "devDependencies": {
+    "turbo": "^2",
+    "typescript": "^5"
+  }
+}

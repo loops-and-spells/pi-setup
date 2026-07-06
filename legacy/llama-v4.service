@@ -1,0 +1,21 @@
+[Unit]
+Description=DeepSeek V4-Flash via llama-server (CUDA fork)
+Conflicts=lmstudio.service
+After=network-online.target
+# StartLimit prevents a tight crash-loop: give up if it dies 3 times within 5 min.
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# Free ALL LM Studio VRAM before starting (daemon down unloads every model + server)
+ExecStartPre=-/home/demiurge/.lmstudio/bin/lms daemon down
+ExecStartPre=/bin/sleep 3
+ExecStart=/home/demiurge/.local/bin/llama-v4-serve.sh
+# Auto-recover from crashes (e.g. VRAM OOM aborts).
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target
