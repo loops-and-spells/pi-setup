@@ -1,3 +1,70 @@
+# pi-bench — Harness Techniques Study (2026-07-07)
+
+Do harness techniques (best-of-N, verify-loop, sampler choice, context shape)
+measurably raise a model's effective capability? Tested with **gated tasks** —
+hidden executable tests score every answer objectively (`passed/total`), no
+judge. Tasks: `gate-bugfix` (5 planted bugs in a Ledger module, 6 checks),
+`gate-impl` (IntervalSet from spec, 9 checks), `gate-repo` (fix
+`orders.checkout` against two other modules' contracts, 8 checks). Each
+technique config runs on the *same* endpoint as its baseline, isolating the
+technique from the model. One sample per cell. Raw outputs:
+`results/harness-techniques-1` (DeepSeek), `results/qwen3-4b-techniques-1`
+(Qwen).
+
+## DeepSeek-V4-Flash 284B (vLLM + DSpark, ~140 t/s)
+
+| Config | bugfix | impl | repo | Σ/23 | Notes |
+|---|---|---|---|---|---|
+| vllm-dspark (baseline, task temp) | 6/6 | 9/9 | 8/8 | **23** | saturates the suite, 3–11s/task |
+| vllm-greedy (temp 0) | 5/6 | 9/9 | 8/8 | 22 | missed the stale-cache bug |
+| vllm-bo3 (best-of-3) | 6/6 | 9/9 | 8/8 | **23** | recovered greedy's drop |
+| vllm-verify (≤3 repair rounds) | 6/6 | 9/9 | 8/8 | **23** | draft already passed — loop exits free |
+| vllm-ctx-none (target file only) | — | — | 7/8 | | hallucinated `release(sku, qty)` |
+| vllm-ctx-map (+ symbol map) | — | — | 8/8 | | docstring contracts recover it |
+| vllm-ctx-full (+ full files) | — | — | 8/8 | | no better than the map |
+
+## Qwen3-4B (llama.cpp, -c 65536) — same tasks, same techniques
+
+| Config | bugfix | impl | repo | Σ/23 | Notes |
+|---|---|---|---|---|---|
+| vllm-single (baseline, task temp) | 0/6 | 0/9 | 0/8 | **0** | every attempt: thinking spiral, 8192 tok, no usable code |
+| vllm-greedy (temp 0) | 5/6 | 0/9 | 0/8 | 5 | temp 0 avoids the bugfix spiral |
+| vllm-bo3 (best-of-3) | 5/6 | 0/9 | **8/8** | **13** | repo: perfect — matches the 284B baseline |
+| vllm-verify (≤3 repair rounds) | **6/6** | 0/9 | 7/8 | **13** | bugfix: perfect after ONE round of test feedback |
+| vllm-ctx-none/map/full | — | — | 0/8 | | uninterpretable: single-shot spirals dominate |
+
+(An earlier 16k-ctx attempt recorded baseline 4/6 on bugfix where this run
+spiraled to 0/6 — same config, same task: small-thinking-model single shots
+are coin flips. The techniques are exactly the variance collapse.)
+
+## Durable findings
+
+1. **Verification loops and best-of-N buy real IQ, and the smaller the model
+   the bigger the buy.** Qwen3-4B: 0/23 → 13/23 under either technique, for
+   ~2–3× tokens on a model where tokens are nearly free. On gate-repo,
+   4B + best-of-3 *equals the 284B model*. On the big model the same
+   techniques cost almost nothing and act as insurance (bo3 recovered
+   greedy's dropped check).
+2. **The two techniques rescue different failures** — verify-loop won bugfix
+   (6/6; one round of failing-test feedback), best-of-3 won repo (8/8;
+   independent resampling escapes the spiral). A production harness should
+   compose them: sample N, gate, feed failures back into the best candidate.
+3. **Sampler choice is a per-model decision, not a global default.** Temp 0
+   *hurt* the 284B (5/6 vs 6/6) and *helped* the 4B (5/6 vs 0/6, and its only
+   deterministic escape from thinking spirals on that task).
+4. **Symbol maps carry the signal.** The one baseline miss on gate-repo came
+   from guessing another module's function signature (`ctx-none`); a
+   signatures+docstrings map fully recovered full-file quality. Contracts
+   should live in docstrings — that's what the map transmits.
+5. **Some walls are model walls.** gate-impl resisted every technique on the
+   4B (0/9 across 8 attempts): when the model can't fit spec-grade reasoning
+   in its budget, no amount of resampling or feedback rescues it. Techniques
+   raise the floor and stabilize; they don't add a tier.
+6. **Ops:** parallel best-of-N on llama-server needs ctx ≥ N×(prompt+maxTokens)
+   — at 16k all three candidates 500'd with "Context size has been exceeded".
+
+---
+
 # pi-bench — Final Report: Model & Mixture Matrix (2026-07-06)
 
 Fourteen configurations benchmarked on four tasks against hidden rubrics.

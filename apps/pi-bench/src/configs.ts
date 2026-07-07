@@ -15,6 +15,7 @@ export type BenchConfigId =
   | "ornith-council"
   | "llama-v4"
   | "vllm-dspark"
+  | "vllm-single"
   | "vllm-bo3"
   | "vllm-verify"
   | "vllm-greedy"
@@ -47,8 +48,14 @@ export interface CouncilBenchConfig {
   readonly id: BenchConfigId
 }
 
-/** Harness techniques, all A/B'd on the same vLLM endpoint (fastest engine). */
-export type TechniqueId = "bo3" | "verify" | "greedy" | "ctx-none" | "ctx-map" | "ctx-full"
+/**
+ * Harness techniques, all A/B'd on one endpoint — the vLLM engine by default,
+ * or any already-serving model via TECHNIQUE_PORT / TECHNIQUE_MODEL env
+ * (used to measure technique lift on small models, where headroom lives).
+ * `single` = single shot at task temperature: the baseline under an override,
+ * where the vllm-dspark engine config can't follow.
+ */
+export type TechniqueId = "single" | "bo3" | "verify" | "greedy" | "ctx-none" | "ctx-map" | "ctx-full"
 
 export interface TechniqueBenchConfig {
   readonly kind: "technique"
@@ -89,6 +96,7 @@ export const benchConfigs: readonly BenchConfig[] = [
   vllmEngineConfig,
   // technique configs ride the vllm session started for vllm-dspark above;
   // vllm-dspark itself is their single-shot baseline
+  { kind: "technique", id: "vllm-single", technique: "single" },
   { kind: "technique", id: "vllm-greedy", technique: "greedy" },
   { kind: "technique", id: "vllm-bo3", technique: "bo3" },
   { kind: "technique", id: "vllm-verify", technique: "verify" },

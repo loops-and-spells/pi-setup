@@ -347,11 +347,24 @@ const runSolo = async (m: CouncilMember, configId: string, task: BenchTask): Pro
 
 const TECHNIQUE_TIMEOUT_MS = 12 * 60 * 1000
 
-const vllmEndpoint: Endpoint = {
-  port: vllmEngineConfig.port,
-  model: vllmEngineConfig.model,
-  stageName: vllmEngineConfig.model
-}
+/**
+ * TECHNIQUE_PORT/TECHNIQUE_MODEL point the technique configs at any
+ * already-serving endpoint (small-model lift studies). The caller owns that
+ * server's lifecycle — the runner then skips its own vllm spin-up.
+ */
+const techniqueOverride = process.env["TECHNIQUE_PORT"]
+const vllmEndpoint: Endpoint =
+  techniqueOverride !== undefined
+    ? {
+        port: Number(techniqueOverride),
+        model: process.env["TECHNIQUE_MODEL"] ?? "default",
+        stageName: process.env["TECHNIQUE_MODEL"] ?? `port-${techniqueOverride}`
+      }
+    : {
+        port: vllmEngineConfig.port,
+        model: vllmEngineConfig.model,
+        stageName: vllmEngineConfig.model
+      }
 
 /**
  * All violations we can compute in code for a draft: hidden-gate results
@@ -461,18 +474,18 @@ const runVerifyLoop = async (task: BenchTask, rounds: number): Promise<TaskResul
   return toResult(task.id, "vllm-verify", current, stages)
 }
 
-/** greedy sampler A/B: identical single shot, temperature 0. */
-const runGreedy = async (task: BenchTask): Promise<TaskResult> => {
+/** single shot at task temperature — the baseline every technique is judged against. */
+const runSingle = async (task: BenchTask, configId: string, temperature: number): Promise<TaskResult> => {
   const r = await chat({
     port: vllmEndpoint.port,
     model: vllmEndpoint.model,
     messages: [{ role: "user", content: task.prompt }],
-    temperature: 0,
+    temperature,
     maxTokens: task.maxTokens,
     timeoutMs: TECHNIQUE_TIMEOUT_MS
   })
-  return toResult(task.id, "vllm-greedy", r, [
-    { stage: `greedy:${vllmEndpoint.stageName}`, metrics: r.metrics, content: "" }
+  return toResult(task.id, configId, r, [
+    { stage: `${configId}:${vllmEndpoint.stageName}`, metrics: r.metrics, content: "" }
   ])
 }
 
@@ -540,8 +553,10 @@ const runTechniqueTask = (cfg: TechniqueBenchConfig, task: BenchTask): Promise<T
       return runBestOfN(task, 3)
     case "verify":
       return runVerifyLoop(task, 3)
+    case "single":
+      return runSingle(task, cfg.id, task.temperature)
     case "greedy":
-      return runGreedy(task)
+      return runSingle(task, cfg.id, 0)
     case "ctx-none":
     case "ctx-map":
     case "ctx-full":
@@ -810,7 +825,11 @@ export const runBench = (
 
     const techniques = configs.filter((c): c is TechniqueBenchConfig => c.kind === "technique")
     if (techniques.length > 0) {
-      yield* ensureEngine(vllmEngineConfig)
+      if (techniqueOverride !== undefined) {
+        yield* Console.log(`Technique endpoint override: :${vllmEndpoint.port} (${vllmEndpoint.model})`)
+      } else {
+        yield* ensureEngine(vllmEngineConfig)
+      }
       for (const cfg of techniques) {
         // ctx variants only mean something on multi-file tasks
         const applicable = cfg.technique.startsWith("ctx-")
