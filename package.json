@@ -10,6 +10,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "engine": "bun run apps/pi-engine/src/main.ts",
+    "harness:install": "bash scripts/install-harness.sh",
     "bench": "bun run apps/pi-bench/src/main.ts"
   },
   "devDependencies": {

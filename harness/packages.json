@@ -1,0 +1,10 @@
+{
+  "packages": [
+    "git:github.com/obra/superpowers",
+    "npm:pi-web-access",
+    "npm:@hypabolic/pi-hypa",
+    "npm:@upstash/context7-pi",
+    "npm:pi-lens",
+    "npm:pi-hermes-memory"
+  ]
+}
