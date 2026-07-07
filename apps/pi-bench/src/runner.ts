@@ -1,7 +1,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { Console, Effect } from "effect"
-import { engines, gpu, health, stopAll, systemd } from "@pi-setup/core"
+import { draftFormatViolations, engines, gpu, health, stopAll, systemd } from "@pi-setup/core"
 import { chat } from "./client"
 import {
   vllmEngineConfig,
@@ -601,6 +601,61 @@ const runCheckedCouncil = async (
   return toResult(task.id, configId, final, stages)
 }
 
+/**
+ * v3 = v2 + the production proxy's resample ladder: when the checked/revised
+ * answer still fails the code-computable checks (draftFormatViolations +
+ * hard constraints — NO hidden-test peeking; the proxy can't see gates),
+ * resample fresh sequentially at raised temperature, keep the least-violating.
+ * Mirrors packages/core/src/serve/council.ts — keep the two in sync.
+ */
+const runLadderCouncil = async (
+  configId: string,
+  chair: CouncilMember,
+  panel: readonly CouncilMember[],
+  checker: CouncilMember,
+  task: BenchTask,
+  resampleMax = 2
+): Promise<TaskResult> => {
+  const stages: StageResult[] = []
+  const briefs = await collectBriefs(panel, task, stages)
+  const chairEp: Endpoint = {
+    port: chair.port,
+    model: chair.alias,
+    stageName: chair.id,
+    completionCap: chair.ctx - 16384
+  }
+  let final = await synthesizeChecked(
+    task,
+    briefs,
+    chairEp,
+    { port: checker.port, model: checker.alias, stageName: checker.id },
+    stages
+  )
+  const proxyVisible = (draft: string): string[] => [
+    ...draftFormatViolations(task.prompt, draft),
+    ...deterministicViolations(task, draft)
+  ]
+  let violations = proxyVisible(final.content)
+  for (let attempt = 1; attempt <= resampleMax && violations.length > 0; attempt++) {
+    try {
+      const resample = await chairmanChat(
+        chairEp,
+        synthesisPrompt(task, briefs),
+        { ...task, temperature: Math.min(1.2, task.temperature + 0.3 * attempt) }
+      )
+      stages.push({ stage: `resample:${attempt}`, metrics: resample.metrics, content: "" })
+      const resampleViolations = proxyVisible(resample.content)
+      if (resampleViolations.length < violations.length) {
+        final = resample
+        violations = resampleViolations
+      }
+    } catch {
+      break // a failed resample must never cost us the deliverable
+    }
+  }
+  return toResult(task.id, configId, final, stages)
+}
+
 // ---------------------------------------------------------------------------
 // sessions
 // ---------------------------------------------------------------------------
@@ -749,10 +804,10 @@ export const runBench = (
     const council = yield* runCouncilSession(configs, tasks)
     results.push(...council.results)
 
-    if (has("ornith-solo") || has("ornith-council")) {
+    if (has("ornith-solo") || has("ornith-council") || has("council-v3")) {
       const ornith = member("ornith-397b")
       const scout = member("qwen3-4b")
-      const members = has("ornith-council") ? [ornith, scout] : [ornith]
+      const members = has("ornith-council") || has("council-v3") ? [ornith, scout] : [ornith]
       const runs: Array<{ configId: string; exec: (t: BenchTask) => Promise<TaskResult> }> = []
       if (has("ornith-solo")) {
         runs.push({ configId: "ornith-solo", exec: (t) => runSolo(ornith, "ornith-solo", t) })
@@ -762,6 +817,12 @@ export const runBench = (
         runs.push({
           configId: "ornith-council",
           exec: (t) => runCheckedCouncil("ornith-council", ornith, [scout], scout, t)
+        })
+      }
+      if (has("council-v3")) {
+        runs.push({
+          configId: "council-v3",
+          exec: (t) => runLadderCouncil("council-v3", ornith, [scout], scout, t)
         })
       }
       results.push(...(yield* runCustomSession(members, runs, tasks)))

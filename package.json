@@ -11,7 +11,8 @@
     "test": "turbo run test",
     "engine": "bun run apps/pi-engine/src/main.ts",
     "harness:install": "bash scripts/install-harness.sh",
-    "bench": "bun run apps/pi-bench/src/main.ts"
+    "bench": "bun run apps/pi-bench/src/main.ts",
+    "test:harness": "bun test harness"
   },
   "devDependencies": {
     "turbo": "^2",

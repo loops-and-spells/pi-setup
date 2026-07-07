@@ -63,6 +63,8 @@ Default section order:
 ## Style
 
 - Keep docs concise, current, and operational
+- Put contracts in docstrings (units, semantics, error behavior) — scouts, symbol maps, and other agents transmit docstrings, not bodies; a contract that lives only in an implementation is invisible to them
+- Keep every Verification section honest and runnable: harness gates execute those commands verbatim after edits
 - Document stable contracts, not diary entries
 - Put broad rules in parent docs and concrete details in child docs
 - Prefer direct bullets with explicit names

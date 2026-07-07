@@ -10,6 +10,7 @@ Source of truth for the user's pi harness. Everything here is symlinked into `~/
 - `agents/` — subagent role definitions (planner, reviewer, scout, worker)
 - `prompts/` — prompt templates for the subagent extension (vendored from pi's bundled examples)
 - `extensions/omarchy-system-theme.ts` — syncs pi theme with omarchy
+- `extensions/verify-gate.ts` — after edit turns, runs the AGENTS.md-chain `## Verification` commands and feeds failures back to the model (bounded retries; `/verify` command). The measured biggest quality lever — keep it enabled
 - `extensions/subagent/` — subagent extension (vendored from pi's bundled examples)
 - `packages.json` — pi extension packages; merged (never overwritten) into `~/.pi/agent/settings.json` by the installer
 
@@ -21,6 +22,7 @@ Source of truth for the user's pi harness. Everything here is symlinked into `~/
 
 ## Verification
 
+- `bun run test:harness` — extension logic tests
 - Re-run `bash scripts/install-harness.sh`; it must be idempotent and report no unexpected backups
 - `ls -la ~/.pi/agent` — installed entries must be symlinks into this repo
 

@@ -24,7 +24,7 @@ What it installs:
 | `harness/AGENTS.global.md` | `~/.pi/agent/AGENTS.md` | global [DOX](https://github.com/agent0ai/dox) contract, loaded by pi every session |
 | `harness/agents/*.md` | `~/.pi/agent/agents/` | planner / reviewer / scout / worker subagents |
 | `harness/prompts/*.md` | `~/.pi/agent/prompts/` | subagent prompt templates |
-| `harness/extensions/*` | `~/.pi/agent/extensions/` | omarchy theme sync, subagent extension |
+| `harness/extensions/*` | `~/.pi/agent/extensions/` | omarchy theme sync, subagent extension, **verify-gate** (runs the AGENTS.md `## Verification` commands after edit turns and feeds failures back; `/verify`) |
 | `apps/pi-council/index.ts` | `~/.pi/agent/extensions/pi-council.ts` | council extension, linked from the repo |
 | `harness/packages.json` | merged into `settings.json` | pi extension packages; merge only, never overwrites |
 

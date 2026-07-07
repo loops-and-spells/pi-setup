@@ -1,5 +1,6 @@
 import * as fs from "node:fs"
 import { Effect } from "effect"
+import { draftFormatViolations } from "../draft-checks"
 import { paths } from "../paths"
 
 /**
@@ -79,6 +80,16 @@ const DRAFT_CLIP = 36000
 const BRIEF_TIMEOUT_MS = 3 * 60 * 1000
 const CHECK_TIMEOUT_MS = 3 * 60 * 1000
 const CHAIRMAN_TIMEOUT_MS = 15 * 60 * 1000
+
+/**
+ * Escalation ladder: when the checked/revised answer still fails the code
+ * checks (draftFormatViolations — spiral signatures), resample fresh drafts
+ * sequentially at raised temperature, early-exiting on the first clean one.
+ * Measured lift of independent resampling: 0/8 → 8/8 on gate-repo (4B),
+ * greedy's dropped check recovered (284B). Sequential because llama-server
+ * serializes Ornith anyway. COUNCIL_RESAMPLES=0 disables.
+ */
+const RESAMPLE_MAX = Number(process.env["COUNCIL_RESAMPLES"] ?? 2)
 
 // ---------------------------------------------------------------------------
 // llama-server plumbing
@@ -325,6 +336,31 @@ const runCouncilTurn = async (body: Json): Promise<PipelineResult> => {
   } catch (e) {
     // a failed check or revision must never cost us the answer — ship the draft
     console.error(`check/revise failed (shipping draft): ${e instanceof Error ? e.message : e}`)
+  }
+
+  // 4. resample ladder — only when the answer still trips the code checks
+  let violations = draftFormatViolations(userText, final)
+  for (let attempt = 1; attempt <= RESAMPLE_MAX && violations.length > 0; attempt++) {
+    console.log(
+      `council turn: draft fails code checks (${violations.length}), resample ${attempt}/${RESAMPLE_MAX}…`
+    )
+    try {
+      const resample = await memberChat(ornith.port, ornith.alias, synthMessages, {
+        temperature: Math.min(1.2, temperature + 0.3 * attempt),
+        maxTokens,
+        timeoutMs: CHAIRMAN_TIMEOUT_MS
+      })
+      usage = addUsage(usage, resample.usage)
+      const resampleViolations = draftFormatViolations(userText, resample.content)
+      // strictly fewer code violations wins; a clean resample ends the ladder
+      if (resampleViolations.length < violations.length) {
+        final = resample.content
+        violations = resampleViolations
+      }
+    } catch (e) {
+      console.error(`resample ${attempt} failed: ${e instanceof Error ? e.message : e}`)
+      break
+    }
   }
 
   console.log(`council turn: full pipeline in ${Math.round((Date.now() - t0) / 1000)}s`)

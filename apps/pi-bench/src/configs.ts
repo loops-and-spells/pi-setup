@@ -13,6 +13,7 @@ export type BenchConfigId =
   | "qwen36-solo"
   | "devstral-council"
   | "ornith-council"
+  | "council-v3"
   | "llama-v4"
   | "vllm-dspark"
   | "vllm-single"
@@ -45,6 +46,7 @@ export interface CouncilBenchConfig {
     | "qwen36-solo"
     | "devstral-council"
     | "ornith-council"
+    | "council-v3"
   readonly id: BenchConfigId
 }
 
@@ -92,6 +94,8 @@ export const benchConfigs: readonly BenchConfig[] = [
   { kind: "qwen36-solo", id: "qwen36-solo" },
   { kind: "devstral-council", id: "devstral-council" },
   { kind: "ornith-council", id: "ornith-council" },
+  // ornith-council + the production proxy's resample ladder (draft-checks)
+  { kind: "council-v3", id: "council-v3" },
   { kind: "engine", id: "llama-v4", engine: "llama", port: 8080, model: "deepseek-v4-flash" },
   vllmEngineConfig,
   // technique configs ride the vllm session started for vllm-dspark above;
