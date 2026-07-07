@@ -48,32 +48,59 @@ export const writeReports = (
 
   // metrics.md — identified; kept out of the judge pack so speed can't bias quality
   const lines: string[] = ["# Benchmark metrics", "", `Run: ${manifest.runId}`, ""]
+
+  // objective scores first: gated tasks × configs, the headline table
+  const gated = tasks.filter((t) => t.gate !== undefined)
+  if (gated.length > 0) {
+    const configsInRun = [...new Set(manifest.results.map((r) => r.configId))]
+    lines.push(
+      "## Gate scores (objective, hidden tests)",
+      "",
+      `| config | ${gated.map((t) => t.id).join(" | ")} |`,
+      `|---|${gated.map(() => "---").join("|")}|`
+    )
+    for (const configId of configsInRun) {
+      const cells = gated.map((t) => {
+        const r = manifest.results.find((x) => x.configId === configId && x.taskId === t.id)
+        if (r === undefined) return "—"
+        if (r.error !== undefined) return "ERR"
+        if (r.gate === undefined) return "—"
+        return `${r.gate.passed}/${r.gate.total}${r.gate.error !== undefined ? " ⚠" : ""}`
+      })
+      lines.push(`| ${configId} | ${cells.join(" | ")} |`)
+    }
+    lines.push("", "⚠ = gate could not run the solution (no code block / crash / timeout)", "")
+  }
+
   for (const task of tasks) {
-    lines.push(`## ${task.id}`, "", "| config | wall | completion tok | stages |", "|---|---|---|---|")
+    lines.push(`## ${task.id}`, "", "| config | wall | completion tok | gate | stages |", "|---|---|---|---|---|")
     for (const r of manifest.results.filter((x) => x.taskId === task.id)) {
       const stages = r.stages
         .map((s) => `${s.stage} ${secs(s.metrics.wallMs)} @${s.metrics.tokensPerSec} t/s`)
         .join("<br>")
+      const gate = r.gate !== undefined ? `${r.gate.passed}/${r.gate.total}` : "—"
       lines.push(
         r.error !== undefined
-          ? `| ${r.configId} | ERROR | — | ${r.error} |`
-          : `| ${r.configId} | ${secs(r.wallMs)} | ${r.completionTokens} | ${stages} |`
+          ? `| ${r.configId} | ERROR | — | — | ${r.error} |`
+          : `| ${r.configId} | ${secs(r.wallMs)} | ${r.completionTokens} | ${gate} | ${stages} |`
       )
     }
     lines.push("")
   }
   fs.writeFileSync(path.join(outDir, "metrics.md"), `${lines.join("\n")}\n`)
 
-  // judge-pack.md — outputs only, anonymized per task; mapping.json unblinds
+  // judge-pack.md — outputs only, anonymized per task; mapping.json unblinds.
+  // Gated tasks are excluded: their scores are objective and already in metrics.md.
   const mapping: Record<string, Record<string, string>> = {}
   const pack: string[] = [
     "# Judge pack",
     "",
     "Responses are anonymized and shuffled per task. Score against each task's",
-    "rubric before reading mapping.json.",
+    "rubric before reading mapping.json. Gated tasks do not appear here — they",
+    "are scored by hidden tests in metrics.md.",
     ""
   ]
-  for (const task of tasks) {
+  for (const task of tasks.filter((t) => t.gate === undefined)) {
     const results = manifest.results.filter((x) => x.taskId === task.id)
     const order = shuffled(results, `${manifest.runId}:${task.id}`)
     pack.push(`## Task: ${task.id} — ${task.title}`, "", "### Prompt", "", task.prompt, "")

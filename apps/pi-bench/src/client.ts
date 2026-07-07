@@ -28,6 +28,9 @@ export const chat = async (opts: {
   messages: readonly ChatMessage[]
   temperature: number
   maxTokens: number
+  /** Optional sampler overrides; omitted fields use server defaults. */
+  topP?: number
+  minP?: number
   timeoutMs?: number
 }): Promise<ChatResult> => {
   const started = Date.now()
@@ -38,7 +41,9 @@ export const chat = async (opts: {
       model: opts.model,
       messages: opts.messages,
       temperature: opts.temperature,
-      max_tokens: opts.maxTokens
+      max_tokens: opts.maxTokens,
+      ...(opts.topP !== undefined ? { top_p: opts.topP } : {}),
+      ...(opts.minP !== undefined ? { min_p: opts.minP } : {})
     }),
     signal: AbortSignal.timeout(opts.timeoutMs ?? 30 * 60 * 1000)
   })

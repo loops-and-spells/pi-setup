@@ -3,7 +3,14 @@ import * as path from "node:path"
 import { Console, Effect } from "effect"
 import { engines, gpu, health, stopAll, systemd } from "@pi-setup/core"
 import { chat } from "./client"
-import { vllmEngineConfig, type BenchConfig, type EngineBenchConfig } from "./configs"
+import {
+  vllmEngineConfig,
+  type BenchConfig,
+  type EngineBenchConfig,
+  type TechniqueBenchConfig
+} from "./configs"
+import { gateViolations, runGate } from "./gate"
+import { renderFiles } from "./tasks"
 import {
   advisors,
   chairman,
@@ -280,6 +287,9 @@ const synthesizeChecked = async (
   return current
 }
 
+/** Stages that run concurrently (advisor briefs, best-of-N candidates) cost max, not sum. */
+const PARALLEL_STAGE = /^(advisor|candidate):/
+
 const toResult = (
   taskId: string,
   configId: string,
@@ -288,10 +298,10 @@ const toResult = (
 ): TaskResult => {
   const advisorWallMs = Math.max(
     0,
-    ...stages.filter((s) => s.stage.startsWith("advisor:")).map((s) => s.metrics.wallMs)
+    ...stages.filter((s) => PARALLEL_STAGE.test(s.stage)).map((s) => s.metrics.wallMs)
   )
   const serialWallMs = stages
-    .filter((s) => !s.stage.startsWith("advisor:"))
+    .filter((s) => !PARALLEL_STAGE.test(s.stage))
     .reduce((sum, s) => sum + s.metrics.wallMs, 0)
   return {
     taskId,
@@ -329,6 +339,214 @@ const runSolo = async (m: CouncilMember, configId: string, task: BenchTask): Pro
     maxTokens: Math.min(task.maxTokens, m.ctx - 8192)
   })
   return toResult(task.id, configId, r, [{ stage: m.id, metrics: r.metrics, content: "" }])
+}
+
+// ---------------------------------------------------------------------------
+// technique runners — harness techniques A/B'd on one endpoint (vllm)
+// ---------------------------------------------------------------------------
+
+const TECHNIQUE_TIMEOUT_MS = 12 * 60 * 1000
+
+const vllmEndpoint: Endpoint = {
+  port: vllmEngineConfig.port,
+  model: vllmEngineConfig.model,
+  stageName: vllmEngineConfig.model
+}
+
+/**
+ * All violations we can compute in code for a draft: hidden-gate results
+ * (behavior) + hard constraints (format). The verify loop and best-of-N
+ * selection both rank on these — models never see the gate's test source,
+ * only failing check names and error text (what a real test run prints).
+ */
+const codeViolations = (task: BenchTask, draft: string): string[] => [
+  ...(task.gate !== undefined ? gateViolations(runGate(task, draft)) : []),
+  ...deterministicViolations(task, draft)
+]
+
+/** best-of-N: N independent candidates at spread temperatures, ranked by code checks. */
+const runBestOfN = async (task: BenchTask, n: number): Promise<TaskResult> => {
+  const temps = [Math.max(task.temperature, 0.2), 0.7, 1.0].slice(0, n)
+  const stages: StageResult[] = []
+  const candidates = (
+    await Promise.all(
+      temps.map(async (temperature, i) => {
+        try {
+          const r = await chat({
+            port: vllmEndpoint.port,
+            model: vllmEndpoint.model,
+            messages: [{ role: "user", content: task.prompt }],
+            temperature,
+            maxTokens: task.maxTokens,
+            timeoutMs: TECHNIQUE_TIMEOUT_MS
+          })
+          stages.push({ stage: `candidate:${i}@t${temperature}`, metrics: r.metrics, content: "" })
+          return { r, i }
+        } catch {
+          return null
+        }
+      })
+    )
+  ).filter((c): c is { r: ChatResult; i: number } => c !== null)
+  if (candidates.length === 0) throw new Error("all best-of-n candidates failed")
+
+  const ranked = candidates
+    .map((c) => ({ ...c, violations: codeViolations(task, c.r.content).length }))
+    .sort(
+      (a, b) =>
+        a.violations - b.violations ||
+        a.r.metrics.completionTokens - b.r.metrics.completionTokens
+    )
+  let winner = ranked[0] as (typeof ranked)[number]
+
+  // code checks can't split a tie on judged (non-gated) tasks — one LLM pick, temp 0
+  const tied = ranked.filter((c) => c.violations === winner.violations)
+  if (tied.length > 1 && task.gate === undefined) {
+    try {
+      const letters = tied.map((_, i) => String.fromCharCode(65 + i))
+      const body = tied
+        .map((c, i) => `## Answer ${letters[i]}\n${clip(c.r.content)}`)
+        .join("\n\n")
+      const pick = await chat({
+        port: vllmEndpoint.port,
+        model: vllmEndpoint.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are ranking candidate answers to the same task. Reply with ONLY the single " +
+              "letter of the best answer: most correct, most complete, and exactly following " +
+              "the task's format constraints."
+          },
+          { role: "user", content: `# Task\n${task.prompt}\n\n${body}` }
+        ],
+        temperature: 0,
+        maxTokens: 512,
+        timeoutMs: TECHNIQUE_TIMEOUT_MS
+      })
+      stages.push({ stage: "selector", metrics: pick.metrics, content: pick.content })
+      const idx = letters.indexOf((pick.content.trim().match(/[A-Z]/)?.[0] ?? "A").toUpperCase())
+      if (idx >= 0) winner = tied[idx] as (typeof ranked)[number]
+    } catch {
+      // selector failure keeps the code-ranked winner
+    }
+  }
+  return toResult(task.id, "vllm-bo3", winner.r, stages)
+}
+
+/** verify-loop: draft → run code checks → feed failures back → revise, up to `rounds`. */
+const runVerifyLoop = async (task: BenchTask, rounds: number): Promise<TaskResult> => {
+  const stages: StageResult[] = []
+  let current = await chairmanChat(vllmEndpoint, task.prompt, task)
+  stages.push({ stage: `draft:${vllmEndpoint.stageName}`, metrics: current.metrics, content: "" })
+  for (let round = 0; round < rounds; round++) {
+    const violations = codeViolations(task, current.content)
+    if (violations.length === 0) break
+    let revised: ChatResult
+    try {
+      revised = await chairmanChat(
+        vllmEndpoint,
+        revisionPrompt(task, current.content, violations.map((v, i) => `${i + 1}. ${v}`).join("\n")),
+        task,
+        "revision"
+      )
+    } catch {
+      break // a failed repair must never cost us the deliverable
+    }
+    stages.push({ stage: `revision:${round + 1}`, metrics: revised.metrics, content: current.content })
+    const floor = Math.max(200, Math.floor(current.content.length / 4))
+    if (revised.content.trim().length >= floor) current = revised
+    else break // degenerate revision — further feedback on it would be noise
+  }
+  return toResult(task.id, "vllm-verify", current, stages)
+}
+
+/** greedy sampler A/B: identical single shot, temperature 0. */
+const runGreedy = async (task: BenchTask): Promise<TaskResult> => {
+  const r = await chat({
+    port: vllmEndpoint.port,
+    model: vllmEndpoint.model,
+    messages: [{ role: "user", content: task.prompt }],
+    temperature: 0,
+    maxTokens: task.maxTokens,
+    timeoutMs: TECHNIQUE_TIMEOUT_MS
+  })
+  return toResult(task.id, "vllm-greedy", r, [
+    { stage: `greedy:${vllmEndpoint.stageName}`, metrics: r.metrics, content: "" }
+  ])
+}
+
+/**
+ * Compact symbol map: signatures + docstrings, no bodies. What a repo-map
+ * harness would inject instead of whole files.
+ */
+export const symbolMap = (files: Readonly<Record<string, string>>): string => {
+  const out: string[] = []
+  for (const [rel, content] of Object.entries(files)) {
+    out.push(`### \`${rel}\``)
+    const lines = content.split("\n")
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? ""
+      const sig = line.match(/^(\s*)(?:class|def)\s.*$/)
+      if (sig === null) continue
+      let entry = line.trim()
+      // multi-line signatures: append until the line that closes with ':'
+      let j = i
+      while (!/[:]\s*(#.*)?$/.test(lines[j] ?? "") && j < i + 5) {
+        j++
+        entry += ` ${(lines[j] ?? "").trim()}`
+      }
+      const doc = (lines[j + 1] ?? "").trim().match(/^[ru]*["']{3}(.*?)(?:["']{3})?$/)
+      out.push(doc?.[1] !== undefined && doc[1] !== "" ? `- \`${entry}\` — ${doc[1]}` : `- \`${entry}\``)
+    }
+    out.push("")
+  }
+  return out.join("\n")
+}
+
+/** ctx experiment: same task, three context renderings — none / symbol map / full files. */
+const runContextVariant = async (
+  task: BenchTask,
+  configId: string,
+  mode: "none" | "map" | "full"
+): Promise<TaskResult> => {
+  const rc = task.repoContext
+  const base = task.rawPrompt
+  if (rc === undefined || base === undefined) {
+    throw new Error(`${configId} needs a repoContext task`)
+  }
+  const target = { [rc.target]: rc.files[rc.target] ?? "" }
+  const others = Object.fromEntries(Object.entries(rc.files).filter(([k]) => k !== rc.target))
+  const context =
+    mode === "none"
+      ? renderFiles(target)
+      : mode === "map"
+        ? `${renderFiles(target)}\n\n## Other project files (symbol map)\n\n${symbolMap(others)}`
+        : renderFiles(rc.files)
+  const r = await chat({
+    port: vllmEndpoint.port,
+    model: vllmEndpoint.model,
+    messages: [{ role: "user", content: `${base}\n\n## Project files\n\n${context}` }],
+    temperature: task.temperature,
+    maxTokens: task.maxTokens,
+    timeoutMs: TECHNIQUE_TIMEOUT_MS
+  })
+  return toResult(task.id, configId, r, [{ stage: `ctx-${mode}`, metrics: r.metrics, content: "" }])
+}
+
+const runTechniqueTask = (cfg: TechniqueBenchConfig, task: BenchTask): Promise<TaskResult> => {
+  switch (cfg.technique) {
+    case "bo3":
+      return runBestOfN(task, 3)
+    case "verify":
+      return runVerifyLoop(task, 3)
+    case "greedy":
+      return runGreedy(task)
+    case "ctx-none":
+    case "ctx-map":
+    case "ctx-full":
+      return runContextVariant(task, cfg.id, cfg.technique.slice(4) as "none" | "map" | "full")
+  }
 }
 
 /** v1: advisors → chairman synthesis, no verification. */
@@ -381,12 +599,18 @@ const runTasksFor = (
     const results: TaskResult[] = []
     for (const task of tasks) {
       yield* Console.log(`  [${configId}] ${task.id}…`)
-      const r = yield* Effect.promise(() => exec(task).catch((e) => failed(task.id, configId, e)))
+      let r = yield* Effect.promise(() => exec(task).catch((e) => failed(task.id, configId, e)))
+      // every config gets the same objective score when the task has a gate
+      if (task.gate !== undefined && r.error === undefined) {
+        r = { ...r, gate: runGate(task, r.output) }
+      }
       results.push(r)
+      const gateNote =
+        r.gate !== undefined ? `, gate ${r.gate.passed}/${r.gate.total}` : ""
       yield* Console.log(
         r.error !== undefined
           ? `  [${configId}] ${task.id} ✗ ${r.error}`
-          : `  [${configId}] ${task.id} ✓ ${Math.round(r.wallMs / 1000)}s, ${r.completionTokens} tok`
+          : `  [${configId}] ${task.id} ✓ ${Math.round(r.wallMs / 1000)}s, ${r.completionTokens} tok${gateNote}`
       )
     }
     return results
@@ -582,6 +806,22 @@ export const runBench = (
           runCouncilVllmTask(t, council.vllmBriefs.get(t.id))
         ))
       )
+    }
+
+    const techniques = configs.filter((c): c is TechniqueBenchConfig => c.kind === "technique")
+    if (techniques.length > 0) {
+      yield* ensureEngine(vllmEngineConfig)
+      for (const cfg of techniques) {
+        // ctx variants only mean something on multi-file tasks
+        const applicable = cfg.technique.startsWith("ctx-")
+          ? tasks.filter((t) => t.repoContext !== undefined)
+          : tasks
+        if (applicable.length === 0) {
+          yield* Console.log(`  [${cfg.id}] skipped: no repoContext tasks in this run`)
+          continue
+        }
+        results.push(...(yield* runTasksFor(cfg.id, applicable, (t) => runTechniqueTask(cfg, t))))
+      }
     }
     return results
   })

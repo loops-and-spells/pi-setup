@@ -1,0 +1,32 @@
+# apps/pi-bench
+
+## Purpose
+
+Benchmark harness with two studies: engines/councils vs each other (blind-judged), and harness *techniques* A/B'd on one endpoint (objectively gated). Its job is to make every harness decision a measured claim.
+
+## Ownership
+
+- `src/configs.ts` — config registry; `technique` configs (bo3, verify, greedy, ctx-*) all run on the vLLM endpoint
+- `src/gate.ts` — objective scoring: extracts the answer's code block, runs hidden tests, counts CHECK lines
+- `src/runner.ts` — sessions + per-config runners; technique runners live in their own section
+- `src/report.ts` — metrics.md (identified, incl. gate-score matrix), judge-pack.md (blind, non-gated tasks only)
+- `tasks/*.json` — task definitions; `results/` — immutable run outputs
+- `test/gate.test.ts` — offline evidence that gates score correctly (reference solutions pass 100%, planted originals fail exactly the planted checks)
+
+## Local Contracts
+
+- Gated tasks (`gate` field) are scored by hidden tests in code; `judgeNotes`/judge pack never apply to them. `gate.totalChecks` must equal the number of `check()` calls in `gate.tests`
+- Hidden test source is NEVER sent to any model. The verify-loop feeds back only failing check names and error text (what a real test run prints)
+- Every config gets gate scores automatically via `runTasksFor` — new configs need no gate wiring
+- `repoContext` tasks: JSON `prompt` excludes the files; the loader embeds all files for non-ctx configs (`rawPrompt` keeps the bare prompt for ctx variants)
+- One sample per cell — treat small deltas as noise; rerun before believing a surprise
+- Results directories are evidence: never edit or delete them
+
+## Verification
+
+- `bun test` (test/gate.test.ts) — must pass before any gated-task or gate-machinery change lands
+- `bun run typecheck`
+
+## Child DOX Index
+
+None — leaf directory.

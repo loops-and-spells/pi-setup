@@ -157,6 +157,31 @@ creative (glyph-esolang, race-noir). A run writes `run.json`, `metrics.md`
 shuffled per task via a seeded PRNG; `mapping.json` unblinds after scoring).
 The runner ends on the vllm engine so pi's default provider still works.
 
+### Gated tasks + harness techniques
+
+A second task class needs no judge: **gated tasks** (`gate-bugfix`,
+`gate-impl`, `gate-repo`) carry hidden executable tests. The runner extracts
+the answer's fenced code block, runs the tests in a sandbox, and every config
+in the run gets an objective `passed/total` score (the gate-score matrix tops
+`metrics.md`). `test/gate.test.ts` proves the machinery offline: reference
+solutions score 100%, the planted-bug originals fail exactly the planted
+checks.
+
+On top of these, **technique configs** A/B harness ideas on the same vLLM
+endpoint, isolating the technique from the model:
+
+| Config | Technique |
+| ------ | --------- |
+| `vllm-dspark` | single shot (baseline) |
+| `vllm-greedy` | identical, temperature 0 |
+| `vllm-bo3` | best-of-3 at spread temps; winner ranked by gate/constraint checks |
+| `vllm-verify` | draft → run checks → feed failures back → revise (≤3 rounds) |
+| `vllm-ctx-none/map/full` | multi-file task with: target file only / + symbol map / + full files |
+
+```sh
+bun run bench -- run --configs vllm-dspark,vllm-greedy,vllm-bo3,vllm-verify,vllm-ctx-none,vllm-ctx-map,vllm-ctx-full --tasks gate-bugfix,gate-impl,gate-repo
+```
+
 ## Repo layout
 
 ```

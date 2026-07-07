@@ -15,6 +15,12 @@ export type BenchConfigId =
   | "ornith-council"
   | "llama-v4"
   | "vllm-dspark"
+  | "vllm-bo3"
+  | "vllm-verify"
+  | "vllm-greedy"
+  | "vllm-ctx-none"
+  | "vllm-ctx-map"
+  | "vllm-ctx-full"
 
 export interface EngineBenchConfig {
   readonly kind: "engine"
@@ -41,7 +47,16 @@ export interface CouncilBenchConfig {
   readonly id: BenchConfigId
 }
 
-export type BenchConfig = EngineBenchConfig | CouncilBenchConfig
+/** Harness techniques, all A/B'd on the same vLLM endpoint (fastest engine). */
+export type TechniqueId = "bo3" | "verify" | "greedy" | "ctx-none" | "ctx-map" | "ctx-full"
+
+export interface TechniqueBenchConfig {
+  readonly kind: "technique"
+  readonly id: BenchConfigId
+  readonly technique: TechniqueId
+}
+
+export type BenchConfig = EngineBenchConfig | CouncilBenchConfig | TechniqueBenchConfig
 
 export const vllmEngineConfig: EngineBenchConfig = {
   kind: "engine",
@@ -71,7 +86,15 @@ export const benchConfigs: readonly BenchConfig[] = [
   { kind: "devstral-council", id: "devstral-council" },
   { kind: "ornith-council", id: "ornith-council" },
   { kind: "engine", id: "llama-v4", engine: "llama", port: 8080, model: "deepseek-v4-flash" },
-  vllmEngineConfig
+  vllmEngineConfig,
+  // technique configs ride the vllm session started for vllm-dspark above;
+  // vllm-dspark itself is their single-shot baseline
+  { kind: "technique", id: "vllm-greedy", technique: "greedy" },
+  { kind: "technique", id: "vllm-bo3", technique: "bo3" },
+  { kind: "technique", id: "vllm-verify", technique: "verify" },
+  { kind: "technique", id: "vllm-ctx-none", technique: "ctx-none" },
+  { kind: "technique", id: "vllm-ctx-map", technique: "ctx-map" },
+  { kind: "technique", id: "vllm-ctx-full", technique: "ctx-full" }
 ]
 
 export const configIds: readonly BenchConfigId[] = benchConfigs.map((c) => c.id)

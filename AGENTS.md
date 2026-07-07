@@ -36,3 +36,4 @@ The targeted outcome, which every change must serve:
 ## Child DOX Index
 
 - `harness/AGENTS.md` — drop-in harness files and the symlink contract into `~/.pi/agent`
+- `apps/pi-bench/AGENTS.md` — benchmark harness: gated (objective) vs judged tasks, technique configs, evidence rules
