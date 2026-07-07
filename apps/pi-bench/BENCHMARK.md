@@ -37,6 +37,29 @@ technique from the model. One sample per cell. Raw outputs:
 spiraled to 0/6 — same config, same task: small-thinking-model single shots
 are coin flips. The techniques are exactly the variance collapse.)
 
+## Council ladder A/B (council-v3, 2026-07-07)
+
+The production changes this study motivated, measured before adoption
+(`results/council-v3-1`). `council-v3` = ornith-council + the proxy's new
+resample ladder: when the checked/revised answer still fails code-computable
+checks (`draftFormatViolations` — empty/truncated/codeless spiral signatures;
+never hidden tests), resample fresh at raised temperature, keep the least
+violating.
+
+| Config | bugfix | impl | repo | Σ/23 | Wall |
+|---|---|---|---|---|---|
+| ornith-council (production) | 6/6 | 9/9 | 8/8 | **23** | 33s / 104s / 32s |
+| council-v3 (+ ladder) | 6/6 | 9/9 | 8/8 | **23** | 27s / 145s / 31s |
+
+The production council *saturates the gated suite* (independent evidence that
+`pi-engine use council` is the right default), so the ladder's rescue path
+never fired — zero `resample:` stages, zero overhead on clean drafts (deltas
+are single-sample variance; v3's slower impl cell was a checker-triggered
+revision, present in both configs). The rescue behavior itself is the Qwen3-4B
+result above (0/8 → 8/8). Ladder shipped in the proxy with
+`COUNCIL_RESAMPLES=2` default; the verify-gate pi extension carries the
+executable-feedback loop (the 0/6 → 6/6 lever) into real editing sessions.
+
 ## Durable findings
 
 1. **Verification loops and best-of-N buy real IQ, and the smaller the model
