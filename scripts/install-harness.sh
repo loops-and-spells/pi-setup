@@ -9,17 +9,38 @@ HARNESS="$REPO/harness"
 
 mkdir -p "$AGENT_DIR/agents" "$AGENT_DIR/extensions" "$AGENT_DIR/prompts" "$AGENT_DIR/skills"
 
+# Backups must live OUTSIDE pi's auto-loaded dirs: a backup directory left
+# inside extensions/ gets scanned by pi and its tools conflict with the
+# installed ones (bit us: subagent.pre-harness).
+BACKUP_DIR="$AGENT_DIR/.harness-backup/$(date +%Y%m%d-%H%M%S)"
+
+backup() {
+  local dst="$1"
+  local rel="${dst#"$AGENT_DIR"/}"
+  mkdir -p "$BACKUP_DIR/$(dirname "$rel")"
+  mv "$dst" "$BACKUP_DIR/$rel"
+  echo "  backed up: $dst -> $BACKUP_DIR/$rel"
+}
+
 link() {
   local src="$1" dst="$2"
   if [[ -e "$dst" && ! -L "$dst" ]]; then
-    mv "$dst" "$dst.pre-harness"
-    echo "  backed up: $dst -> $dst.pre-harness"
+    backup "$dst"
   elif [[ -L "$dst" && "$(readlink "$dst")" == "$src" ]]; then
     return
   fi
   ln -sfn "$src" "$dst"
   echo "  linked: $dst -> $src"
 }
+
+# migrate stray in-place backups from older installer versions
+while IFS= read -r -d '' stray; do
+  backup "$stray"
+done < <(find "$AGENT_DIR/extensions" "$AGENT_DIR/agents" "$AGENT_DIR/prompts" \
+  -maxdepth 1 -name "*.pre-harness" -print0 2>/dev/null)
+if [[ -e "$AGENT_DIR/AGENTS.md.pre-harness" ]]; then
+  backup "$AGENT_DIR/AGENTS.md.pre-harness"
+fi
 
 echo "Installing pi harness from $HARNESS into $AGENT_DIR"
 
