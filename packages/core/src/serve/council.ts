@@ -39,9 +39,11 @@ const ornith: Member = {
   id: "ornith-397b",
   alias: "ornith-397b",
   port: 9103,
-  // ~11GB/GPU idle at 49152 → 65536 fits; the baked reasoning budget is the
-  // proven anti-spiral config (ornith-tuned, 305/400)
-  ctx: 65536,
+  // n_ctx_train = 262144, and MLA keeps KV tiny (1.9GB total at 65536 →
+  // ~7.7GB at full ctx, against ~12GB/GPU free) — serve the model's whole
+  // trained window. The baked reasoning budget is the proven anti-spiral
+  // config (ornith-tuned, 305/400).
+  ctx: 262144,
   gpus: "",
   args: ["-ts", "50,50", "--reasoning-budget", "8192"],
   readyTimeoutSec: 1800
@@ -51,10 +53,12 @@ const scout: Member = {
   id: "qwen3-4b",
   alias: "qwen3-4b",
   port: 9107,
-  ctx: 16384,
+  // n_ctx_train = 32768; the reasoning budget keeps the scout's thinking from
+  // starving its own brief/check budgets (unbounded, it spirals — measured)
+  ctx: 32768,
   // 2.3GB fits in Ornith's GPU1 margin (verified co-resident in the bench)
   gpus: "1",
-  args: [],
+  args: ["--reasoning-budget", "1024"],
   readyTimeoutSec: 300
 }
 
@@ -72,10 +76,10 @@ const CHECKER_SYSTEM =
   "constraints only — quote the requirement and state what the draft got wrong. Judge only " +
   "explicit constraints, not quality."
 
-/** Prompt-budget clips (chars ≈ tokens × 3–4): scout ctx is 16384 tokens. */
-const REQUEST_CLIP = 20000
+/** Prompt-budget clips (chars ≈ tokens × 3–4): scout ctx is 32768 tokens. */
+const REQUEST_CLIP = 40000
 const BRIEF_CLIP = 12000
-const DRAFT_CLIP = 36000
+const DRAFT_CLIP = 72000
 
 const BRIEF_TIMEOUT_MS = 3 * 60 * 1000
 const CHECK_TIMEOUT_MS = 3 * 60 * 1000
@@ -246,7 +250,13 @@ const runCouncilTurn = async (body: Json): Promise<PipelineResult> => {
   const last = messages[messages.length - 1]
   const userText = textOf(last?.content).slice(0, REQUEST_CLIP)
   const temperature = typeof body["temperature"] === "number" ? body["temperature"] : 0.7
-  const maxTokens = Math.min(typeof body["max_tokens"] === "number" ? body["max_tokens"] : 16384, 49152)
+  // completion budget must clear the chairman's --reasoning-budget (8192) with
+  // room for the answer, or thinking starves the output — the measured
+  // "spiral coin flip" was exactly max_tokens == reasoning budget
+  const maxTokens = Math.min(
+    Math.max(typeof body["max_tokens"] === "number" ? body["max_tokens"] : 32768, 24576),
+    65536
+  )
   const tools = Array.isArray(body["tools"]) && body["tools"].length > 0 ? body["tools"] : undefined
   const agentic = tools !== undefined || messages.some((m) => m.role === "tool")
   let usage = zeroUsage()

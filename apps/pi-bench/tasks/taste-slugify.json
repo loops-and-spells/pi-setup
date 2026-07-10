@@ -2,7 +2,7 @@
   "id": "taste-slugify",
   "title": "Slugify with learned conventions",
   "temperature": 0.2,
-  "maxTokens": 8192,
+  "maxTokens": 16384,
   "prompt": "Write a Python module that provides a function `slugify(title)` converting a title string into a URL slug.\n\nContract:\n- Lowercase the input.\n- Every maximal run of characters that are not ASCII letters or digits (spaces, underscores, punctuation, symbols) becomes a single hyphen.\n- No leading or trailing hyphens in the result.\n- Empty strings and non-string inputs are invalid.\n\nReply with the complete module in ONE fenced python code block.",
   "judgeNotes": "Objective task - scored by hidden gate tests; no judging needed.",
   "tasteRules": [

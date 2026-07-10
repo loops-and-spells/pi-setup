@@ -2,7 +2,7 @@
   "id": "taste-manifest",
   "title": "Manifest parser with learned conventions",
   "temperature": 0.2,
-  "maxTokens": 8192,
+  "maxTokens": 16384,
   "prompt": "Write a Python module for reading order manifests.\n\nFormat: each non-empty line is `name,quantity,unit_price_cents` (e.g. `widget,3,250`). Lines that are blank or start with `#` are skipped. `name` is a string; `quantity` and `unit_price_cents` are non-negative integers.\n\nProvide:\n- `parse_manifest(text)`: parse manifest text into a list of item records, in input order.\n- `total_cents(items)`: total of quantity * unit_price_cents over the records.\n- `load_manifest(path)`: read a manifest file from disk (path given as a string) and return the parsed records.\n\nReply with the complete module in ONE fenced python code block.",
   "judgeNotes": "Objective task - scored by hidden gate tests; no judging needed.",
   "tasteRules": [

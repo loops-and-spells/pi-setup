@@ -154,14 +154,14 @@ export const engines: Record<EngineId, EngineDef> = {
         {
           id: "ornith-council",
           name: "ornith-council — scout brief → Ornith → check → revise (bench 284/300)",
-          contextWindow: 65536,
-          maxTokens: 49152
+          contextWindow: 262144,
+          maxTokens: 65536
         },
         {
           id: "ornith-397b",
           name: "Ornith-397B IQ3 passthrough (no council overhead)",
-          contextWindow: 65536,
-          maxTokens: 49152
+          contextWindow: 262144,
+          maxTokens: 65536
         }
       ]
     },

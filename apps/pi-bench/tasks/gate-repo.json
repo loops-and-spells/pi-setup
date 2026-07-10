@@ -2,7 +2,7 @@
   "id": "gate-repo",
   "title": "Fix orders.checkout using the project's own contracts",
   "temperature": 0.2,
-  "maxTokens": 8192,
+  "maxTokens": 16384,
   "prompt": "This project's `orders.py` is buggy. Fix `checkout` so it satisfies the contract in its docstring exactly, using the `pricing` and `inventory` modules correctly. Do not modify pricing.py or inventory.py.\n\nReply with the complete corrected `orders.py` in ONE fenced ```python block. No other code blocks anywhere in your answer.",
   "judgeNotes": "Objective task - scored by hidden gate tests; no judging needed.",
   "gate": {

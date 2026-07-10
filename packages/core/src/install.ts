@@ -137,7 +137,7 @@ After=network-online.target
 Type=simple
 Environment=CUDA_VISIBLE_DEVICES=1
 Environment=LD_LIBRARY_PATH=${paths.cudaLib}
-ExecStart=${paths.llama.bin} -m ${paths.council.scoutGguf} --alias qwen3-4b --host 127.0.0.1 --port 9107 -ngl 999 -c 16384 --jinja
+ExecStart=${paths.llama.bin} -m ${paths.council.scoutGguf} --alias qwen3-4b --host 127.0.0.1 --port 9107 -ngl 999 -c 32768 --jinja --reasoning-budget 1024
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300
@@ -219,8 +219,8 @@ export const install = (): Effect.Effect<void, Error> =>
         {
           id: "qwen3-4b",
           name: "Qwen3-4B — council scout/checker",
-          contextWindow: 16384,
-          maxTokens: 4096
+          contextWindow: 32768,
+          maxTokens: 8192
         }
       ]
     })

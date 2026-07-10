@@ -97,6 +97,33 @@ production renderer at the shipped 1800-char budget. Raw outputs:
 Shipped: `taste.ts` injection enabled by default (inert until rules are
 learned; `/taste off` to disable), observation + auto-distill on.
 
+## Spiral tuning — budget collision diagnosed and fixed (2026-07-10)
+
+The recurring "thinking spiral" (all completion tokens consumed by reasoning,
+empty answer — the gate-impl coin flip on the raw 397B endpoint) was
+diagnosed as a **budget collision**: Ornith serves with
+`--reasoning-budget 8192` and the gated tasks requested `max_tokens: 8192` —
+thinking could legally consume the entire completion budget, leaving zero
+tokens for the answer.
+
+Fixes shipped (serve config + proxy + tasks):
+
+- Ornith now serves its full trained window: ctx **65536 → 262144**
+  (n_ctx_train; MLA keeps KV tiny — 1.9GB → ~7.7GB, ~6.5GB/GPU still free)
+- Scout: ctx 16384 → 32768 (its n_ctx_train) + `--reasoning-budget 1024`
+  (it previously had NONE — unbounded 4B thinking was the true spiral
+  machine); brief quality verified at the budget
+- Proxy completion floor: non-passthrough turns get
+  `max_tokens = clamp(request, 24576, 65536)` so thinking (8192) can never
+  starve the answer; request/draft clips doubled for the larger scout
+- Gated tasks: maxTokens 8192 → 16384 (never let the task budget equal the
+  server's reasoning budget; pre-fix runs stand as recorded)
+
+Measured (results/spiral-397b-{1,2,3}): gate-impl on :9103, previously a
+0/9-vs-9/9 coin flip, now **9/9 × 3/3** — and every sample consumed
+8.6–9.0k completion tokens, i.e. more than the old 8192 budget could ever
+hold. The spiral on this cell was budget starvation, not model failure.
+
 ## Delegation study — role staging (2026-07-10)
 
 Does composing roles on one endpoint (plan → execute; draft → critique →
@@ -188,6 +215,12 @@ regex extractors.
    1.6–2.3× tokens, on both tiers. Quality feedback must be *executable*
    (verify-gate, gates, ladder signals); delegate to subagents for context
    isolation and parallelism, not for a second opinion from the same model.
+9. **Completion budget must exceed the reasoning budget by the answer size.**
+   `max_tokens == --reasoning-budget` lets thinking legally eat the whole
+   completion — that WAS the "spiral coin flip" (gate-impl 397B: 0/9↔9/9
+   became 9/9 × 3/3 once the budget cleared thinking; real usage measured
+   8.6–9.0k tokens against the old 8192 cap). Check the budget math before
+   blaming the model.
 
 ---
 

@@ -111,10 +111,11 @@ export const extraMembers: readonly CouncilMember[] = [
     ),
     alias: "ornith-397b",
     port: 9103,
-    // solo on both GPUs there is KV headroom beyond 32k; ~11GB/GPU was still
-    // idle at 49152, so 65536 fits. The baked reasoning budget is the proven
-    // anti-spiral config (ornith-tuned, 305/400).
-    ctx: 65536,
+    // n_ctx_train = 262144 and MLA keeps KV tiny (~7.7GB at full ctx) —
+    // serve the whole trained window, matching production serve/council.ts.
+    // The baked reasoning budget is the proven anti-spiral config
+    // (ornith-tuned, 305/400).
+    ctx: 262144,
     gpus: "",
     extraArgs: [
       "-ts", "50,50",
@@ -144,9 +145,11 @@ export const extraMembers: readonly CouncilMember[] = [
     gguf: path.join(ggufDir, "qwen3-4b/Qwen3-4B-Q4_K_M.gguf"),
     alias: "qwen3-4b",
     port: 9107,
-    ctx: 16384,
+    // n_ctx_train = 32768; reasoning budget matches production (unbounded
+    // 4B thinking spirals — measured)
+    ctx: 32768,
     gpus: "1",
-    extraArgs: [],
+    extraArgs: ["--reasoning-budget", "1024"],
     readyTimeoutSec: 120,
     lens:
       "You are the council's Scout, a small fast model briefing a much stronger one. " +
