@@ -25,6 +25,8 @@ export type BenchConfigId =
   | "vllm-ctx-full"
   | "taste-off"
   | "taste-on"
+  | "plan-exec"
+  | "crit-revise"
 
 export interface EngineBenchConfig {
   readonly kind: "engine"
@@ -69,6 +71,8 @@ export type TechniqueId =
   | "ctx-full"
   | "taste-off"
   | "taste-on"
+  | "plan-exec"
+  | "crit-revise"
 
 export interface TechniqueBenchConfig {
   readonly kind: "technique"
@@ -120,7 +124,10 @@ export const benchConfigs: readonly BenchConfig[] = [
   { kind: "technique", id: "vllm-ctx-full", technique: "ctx-full" },
   // taste A/B: identical single shots, ± the learned-preferences system block
   { kind: "technique", id: "taste-off", technique: "taste-off" },
-  { kind: "technique", id: "taste-on", technique: "taste-on" }
+  { kind: "technique", id: "taste-on", technique: "taste-on" },
+  // delegation study: role-composition patterns (plan→execute, draft→critique→revise)
+  { kind: "technique", id: "plan-exec", technique: "plan-exec" },
+  { kind: "technique", id: "crit-revise", technique: "crit-revise" }
 ]
 
 export const configIds: readonly BenchConfigId[] = benchConfigs.map((c) => c.id)

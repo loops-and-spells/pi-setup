@@ -97,6 +97,39 @@ production renderer at the shipped 1800-char budget. Raw outputs:
 Shipped: `taste.ts` injection enabled by default (inert until rules are
 learned; `/taste off` to disable), observation + auto-distill on.
 
+## Delegation study — role staging (2026-07-10)
+
+Does composing roles on one endpoint (plan → execute; draft → critique →
+revise, prompts adapted from `harness/agents/`) buy quality the way
+executable feedback and resampling do? All five gated tasks, both tiers,
+same-run single-shot baseline. Raw: `results/delegation-qwen4b-1`,
+`results/delegation-397b-{1,2}`.
+
+| Config | Qwen3-4B Σ/38 | Ornith-397B Σ/38 | 397B tokens |
+|---|---|---|---|
+| vllm-single (baseline) | 8 | 31 | 12.6k |
+| plan-exec | 10 | 22¹ | 20.6k |
+| crit-revise | 8 | 32 | 28.6k |
+
+¹ gate-impl 9→0 looked like a technique failure; the rerun showed *both*
+plan-exec AND the plain baseline at 0/9 (`delegation-397b-2`) — gate-impl on
+the 397B is a thinking-spiral coin flip regardless of config. Within noise,
+plan-exec is parity at 1.6× tokens.
+
+- **Role staging without ground truth buys nothing measurable.** crit-revise:
+  +1 check of 38 at 2.3× tokens (the reviewer APPROVEs wrong drafts or the
+  reviser doesn't convert critique into repairs). plan-exec: +2 on the 4B
+  (bugfix 4→6), parity on the 397B — and every extra stage is another spiral
+  surface on small thinking models.
+- Contrast with the measured levers: bo3/verify lifted the 4B 0/23→13/23 on
+  the same gate tasks. **Feedback must come from execution, not from another
+  pass of the same model.**
+- Scope note: this measures staged composition on one endpoint, non-agentic.
+  The subagent extension's real value — context isolation and parallelism
+  with tools — is a different claim, untested here. What this kills is the
+  idea that same-model role-play stages should be added to the proxy or
+  harness for *quality*.
+
 ## Repo-map builder A/B (2026-07-10)
 
 The repo-map pi extension injects a symbol map (signatures + doc contracts,
@@ -150,6 +183,11 @@ regex extractors.
    2/24 style checks; with the rules in a 1800-char system block, 17/24 — and
    on the production-tier model the block was free (23/23 regression suite,
    fewer tokens everywhere). Learned taste is a real, measurable lever.
+8. **Role staging is not a quality lever.** plan→execute and
+   draft→critique→revise on the same endpoint bought ≤+2 checks of 38 at
+   1.6–2.3× tokens, on both tiers. Quality feedback must be *executable*
+   (verify-gate, gates, ladder signals); delegate to subagents for context
+   isolation and parallelism, not for a second opinion from the same model.
 
 ---
 

@@ -507,6 +507,100 @@ const runTasteOn = async (task: BenchTask): Promise<TaskResult> => {
   ])
 }
 
+// ---------------------------------------------------------------------------
+// delegation study — role-composition patterns from harness/agents, adapted
+// to the non-agentic setting (the shipped prompts are tool-flavored)
+// ---------------------------------------------------------------------------
+
+const PLANNER_SYSTEM =
+  "You are a planner. Given a task, produce a concrete, step-by-step implementation plan: " +
+  "name the components, data structures, algorithms, edge cases, and pitfalls the " +
+  "implementer must handle. You do NOT write the final deliverable — you design it. " +
+  "Keep the plan tight: numbered steps, no prose padding."
+
+const REVIEWER_SYSTEM =
+  "You are a code reviewer. Review the draft answer against the task for correctness bugs " +
+  "first (logic errors, edge cases, error handling, contract violations), then for missing " +
+  "requirements. Cite each defect concretely and state the fix. Do NOT rewrite the " +
+  "deliverable. If the draft is correct and complete, reply with exactly APPROVE."
+
+const planExecPrompt = (task: BenchTask, plan: string): string =>
+  `${task.prompt}\n\n---\nAn implementation plan from a planning agent follows. Follow it ` +
+  `where it is correct, silently fix it where it is not, and produce the complete ` +
+  `deliverable the task asks for. Do not mention the plan.\n\n## Plan\n${clip(plan)}`
+
+/** plan → execute: a planner pass designs, then a fresh pass implements. */
+const runPlanExec = async (task: BenchTask): Promise<TaskResult> => {
+  const stages: StageResult[] = []
+  let plan = ""
+  try {
+    const p = await chat({
+      port: vllmEndpoint.port,
+      model: vllmEndpoint.model,
+      messages: [
+        { role: "system", content: PLANNER_SYSTEM },
+        { role: "user", content: task.prompt }
+      ],
+      temperature: task.temperature,
+      maxTokens: 4096,
+      timeoutMs: TECHNIQUE_TIMEOUT_MS
+    })
+    stages.push({ stage: `planner:${vllmEndpoint.stageName}`, metrics: p.metrics, content: p.content })
+    plan = p.content.trim()
+  } catch {
+    // a failed planner degrades to single-shot, never aborts the task
+  }
+  const final = await chairmanChat(
+    vllmEndpoint,
+    plan === "" ? task.prompt : planExecPrompt(task, plan),
+    task
+  )
+  stages.push({ stage: `exec:${vllmEndpoint.stageName}`, metrics: final.metrics, content: "" })
+  return toResult(task.id, "plan-exec", final, stages)
+}
+
+/** draft → critique → revise: an LLM reviewer pass, no executable feedback. */
+const runCritRevise = async (task: BenchTask): Promise<TaskResult> => {
+  const stages: StageResult[] = []
+  let current = await chairmanChat(vllmEndpoint, task.prompt, task)
+  stages.push({ stage: `draft:${vllmEndpoint.stageName}`, metrics: current.metrics, content: "" })
+  let critique = ""
+  try {
+    const c = await chat({
+      port: vllmEndpoint.port,
+      model: vllmEndpoint.model,
+      messages: [
+        { role: "system", content: REVIEWER_SYSTEM },
+        { role: "user", content: `## Task\n${task.prompt}\n\n## Draft answer\n${current.content}` }
+      ],
+      temperature: 0,
+      maxTokens: 4096,
+      timeoutMs: TECHNIQUE_TIMEOUT_MS
+    })
+    stages.push({ stage: `reviewer:${vllmEndpoint.stageName}`, metrics: c.metrics, content: c.content })
+    critique = c.content.trim()
+  } catch {
+    return toResult(task.id, "crit-revise", current, stages) // no reviewer, ship the draft
+  }
+  if (critique === "" || /^\**APPROVE\**\.?$/im.test(critique.split("\n")[0] ?? "")) {
+    return toResult(task.id, "crit-revise", current, stages)
+  }
+  try {
+    const revised = await chairmanChat(
+      vllmEndpoint,
+      revisionPrompt(task, current.content, clip(critique)),
+      task,
+      "revision"
+    )
+    stages.push({ stage: "revision:1", metrics: revised.metrics, content: current.content })
+    const floor = Math.max(200, Math.floor(current.content.length / 4))
+    if (revised.content.trim().length >= floor) current = revised
+  } catch {
+    // a failed repair must never cost us the deliverable
+  }
+  return toResult(task.id, "crit-revise", current, stages)
+}
+
 /** single shot at task temperature — the baseline every technique is judged against. */
 const runSingle = async (task: BenchTask, configId: string, temperature: number): Promise<TaskResult> => {
   const r = await chat({
@@ -573,6 +667,10 @@ const runTechniqueTask = (cfg: TechniqueBenchConfig, task: BenchTask): Promise<T
       return runSingle(task, cfg.id, task.temperature)
     case "taste-on":
       return runTasteOn(task)
+    case "plan-exec":
+      return runPlanExec(task)
+    case "crit-revise":
+      return runCritRevise(task)
     case "ctx-none":
     case "ctx-map":
     case "ctx-full":
