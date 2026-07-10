@@ -1,0 +1,19 @@
+{
+  "id": "taste-slugify",
+  "title": "Slugify with learned conventions",
+  "temperature": 0.2,
+  "maxTokens": 8192,
+  "prompt": "Write a Python module that provides a function `slugify(title)` converting a title string into a URL slug.\n\nContract:\n- Lowercase the input.\n- Every maximal run of characters that are not ASCII letters or digits (spaces, underscores, punctuation, symbols) becomes a single hyphen.\n- No leading or trailing hyphens in the result.\n- Empty strings and non-string inputs are invalid.\n\nReply with the complete module in ONE fenced python code block.",
+  "judgeNotes": "Objective task - scored by hidden gate tests; no judging needed.",
+  "tasteRules": [
+    "Every function must have complete type annotations for all parameters and the return value.",
+    "Every public function must have a docstring stating its contract.",
+    "Invalid input must raise ValueError \u2014 never return None or a default \u2014 with the offending value in the message.",
+    "Every module must define __all__ listing its public API."
+  ],
+  "gate": {
+    "tests": "import solution\n\n\ndef t_basic():\n    assert solution.slugify(\"Hello, World!\") == \"hello-world\", solution.slugify(\"Hello, World!\")\ncheck(\"basic\", t_basic)\n\n\ndef t_collapse():\n    assert solution.slugify(\"  a__b   c--d \") == \"a-b-c-d\", solution.slugify(\"  a__b   c--d \")\ncheck(\"collapse\", t_collapse)\n\n\ndef t_mixed():\n    got = solution.slugify(\"Python 3.12 -- What's New?\")\n    assert got == \"python-3-12-what-s-new\", got\ncheck(\"mixed\", t_mixed)\n\n\ndef t_style_annotations():\n    import ast\n    src = open(\"solution.py\").read()\n    tree = ast.parse(src)\n    for node in ast.walk(tree):\n        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):\n            assert node.returns is not None, f\"{node.name} missing return annotation\"\n            for a in list(node.args.args) + list(node.args.kwonlyargs):\n                if a.arg in (\"self\", \"cls\"):\n                    continue\n                assert a.annotation is not None, f\"{node.name}({a.arg}) missing annotation\"\ncheck(\"style-annotations\", t_style_annotations)\n\n\ndef t_style_docstrings():\n    import ast\n    src = open(\"solution.py\").read()\n    tree = ast.parse(src)\n    for node in tree.body:\n        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):\n            if node.name.startswith(\"_\"):\n                continue\n            assert ast.get_docstring(node), f\"{node.name} missing docstring\"\ncheck(\"style-docstrings\", t_style_docstrings)\n\n\ndef t_style_valueerror():\n    try:\n        solution.slugify(123)\n        raise AssertionError(\"slugify(123) did not raise\")\n    except ValueError as e:\n        assert \"123\" in str(e), f\"offending value not in message: {e}\"\n    try:\n        solution.slugify(\"\")\n        raise AssertionError(\"slugify('') did not raise\")\n    except ValueError:\n        pass\ncheck(\"style-valueerror\", t_style_valueerror)\n\n\ndef t_style_all():\n    assert hasattr(solution, \"__all__\"), \"module missing __all__\"\n    assert \"slugify\" in solution.__all__, solution.__all__\ncheck(\"style-all\", t_style_all)\n",
+    "totalChecks": 7,
+    "timeoutSec": 30
+  }
+}

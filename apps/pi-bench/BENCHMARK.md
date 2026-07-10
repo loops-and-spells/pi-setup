@@ -60,6 +60,43 @@ result above (0/8 → 8/8). Ladder shipped in the proxy with
 `COUNCIL_RESAMPLES=2` default; the verify-gate pi extension carries the
 executable-feedback loop (the 0/6 → 6/6 lever) into real editing sessions.
 
+## Taste A/B — learned-preference injection (2026-07-10)
+
+Measures the injection pathway of the `taste` pi extension (learns style rules
+from the user's edits to agent-written code, injects them as a capped system
+block) before enabling it. Two new gated tasks (`taste-slugify` 3+4 checks,
+`taste-manifest` 4+4 checks) carry `tasteRules` — conventions the hidden
+`style-*` checks verify but that only `taste-on` sees. The three gate-* tasks
+run with a *neutral* generic rule block instead, so any delta there is pure
+context tax. `taste-on` injects through a byte-identical copy of the
+production renderer at the shipped 1800-char budget. Raw outputs:
+`results/taste-qwen4b-{1,2}`, `results/taste-397b-1`.
+
+| Endpoint / sample | style adherence /8 | taste correctness /7 | regression set /23 |
+|---|---|---|---|
+| Qwen3-4B #1 (off → on) | 0 → **7** | 4 → 7 | 9 → 8 |
+| Qwen3-4B #2 (off → on) | 0 → **3** | 7 → 3 | 7 → 10 |
+| Ornith-397B (off → on) | 2 → **7** | 7 → 7 | 14 → **23** |
+
+- **Models do not follow conventions they aren't told**: 2/24 style checks
+  pass across every off-arm. Injected rules flip that to 17/24 — near-perfect
+  on the production-tier model both times the answer survived.
+- **Zero regression at the production tier, and cheaper**: 397B passed the
+  full regression suite under the rule block and used *fewer* completion
+  tokens on all five tasks (the off-arm's 0/9 impl cell was a thinking
+  spiral). 4B regression is parity within spiral noise (16 → 18 of 46).
+- **Small-model caveat**: 4B sample #2's manifest attempt complied with every
+  rule but crashed on `from typing import ... ValueError` — extra constraints
+  can cost a small model a capability slip. The production ladder/verify-gate
+  layers are the mitigation, not a reason to withhold rules.
+- **Distiller smoke (live, ornith-council endpoint)**: three synthetic
+  agent-write→user-edit diffs distilled into 8 well-formed rules capturing
+  all three embedded preferences (annotations, ValueError-with-value,
+  pathlib) plus real secondary signals (f-strings with `!r`, comprehensions).
+
+Shipped: `taste.ts` injection enabled by default (inert until rules are
+learned; `/taste off` to disable), observation + auto-distill on.
+
 ## Durable findings
 
 1. **Verification loops and best-of-N buy real IQ, and the smaller the model
@@ -85,6 +122,10 @@ executable-feedback loop (the 0/6 → 6/6 lever) into real editing sessions.
    raise the floor and stabilize; they don't add a tier.
 6. **Ops:** parallel best-of-N on llama-server needs ctx ≥ N×(prompt+maxTokens)
    — at 16k all three candidates 500'd with "Context size has been exceeded".
+7. **Preference rules must be injected, not hoped for.** Off-arm models passed
+   2/24 style checks; with the rules in a 1800-char system block, 17/24 — and
+   on the production-tier model the block was free (23/23 regression suite,
+   fewer tokens everywhere). Learned taste is a real, measurable lever.
 
 ---
 

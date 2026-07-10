@@ -10,6 +10,7 @@ import {
   type TechniqueBenchConfig
 } from "./configs"
 import { gateViolations, runGate } from "./gate"
+import { GENERIC_TASTE_RULES, TASTE_INJECT_CHARS, renderTasteBlock } from "./taste"
 import { renderFiles } from "./tasks"
 import {
   advisors,
@@ -474,6 +475,30 @@ const runVerifyLoop = async (task: BenchTask, rounds: number): Promise<TaskResul
   return toResult(task.id, "vllm-verify", current, stages)
 }
 
+/**
+ * taste-on: the same single shot as taste-off, plus the taste system block —
+ * the task's own tasteRules (adherence measurement) or the generic learned
+ * ruleset (regression measurement on tasks without rules). Renders through
+ * the exact function production injects with, at the shipped char budget.
+ */
+const runTasteOn = async (task: BenchTask): Promise<TaskResult> => {
+  const block = renderTasteBlock(task.tasteRules ?? GENERIC_TASTE_RULES, TASTE_INJECT_CHARS)
+  const r = await chat({
+    port: vllmEndpoint.port,
+    model: vllmEndpoint.model,
+    messages: [
+      { role: "system", content: block },
+      { role: "user", content: task.prompt }
+    ],
+    temperature: task.temperature,
+    maxTokens: task.maxTokens,
+    timeoutMs: TECHNIQUE_TIMEOUT_MS
+  })
+  return toResult(task.id, "taste-on", r, [
+    { stage: `taste-on:${vllmEndpoint.stageName}`, metrics: r.metrics, content: "" }
+  ])
+}
+
 /** single shot at task temperature — the baseline every technique is judged against. */
 const runSingle = async (task: BenchTask, configId: string, temperature: number): Promise<TaskResult> => {
   const r = await chat({
@@ -557,6 +582,10 @@ const runTechniqueTask = (cfg: TechniqueBenchConfig, task: BenchTask): Promise<T
       return runSingle(task, cfg.id, task.temperature)
     case "greedy":
       return runSingle(task, cfg.id, 0)
+    case "taste-off":
+      return runSingle(task, cfg.id, task.temperature)
+    case "taste-on":
+      return runTasteOn(task)
     case "ctx-none":
     case "ctx-map":
     case "ctx-full":

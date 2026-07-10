@@ -48,6 +48,11 @@ export interface BenchTask {
   readonly hardConstraints?: HardConstraints
   /** Executable hidden tests: gated tasks are scored objectively, no judge. */
   readonly gate?: TaskGate
+  /**
+   * Learned-preference rules for the taste A/B: only the taste-on config sees
+   * them (injected as a system message); hidden style-* checks verify them.
+   */
+  readonly tasteRules?: readonly string[]
   /** Multi-file setting for the context experiments (ctx-none/map/full). */
   readonly repoContext?: RepoContext
   /** Set by the loader when repoContext exists: the prompt WITHOUT the rendered files. */

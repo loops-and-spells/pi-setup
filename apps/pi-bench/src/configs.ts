@@ -23,6 +23,8 @@ export type BenchConfigId =
   | "vllm-ctx-none"
   | "vllm-ctx-map"
   | "vllm-ctx-full"
+  | "taste-off"
+  | "taste-on"
 
 export interface EngineBenchConfig {
   readonly kind: "engine"
@@ -57,7 +59,16 @@ export interface CouncilBenchConfig {
  * `single` = single shot at task temperature: the baseline under an override,
  * where the vllm-dspark engine config can't follow.
  */
-export type TechniqueId = "single" | "bo3" | "verify" | "greedy" | "ctx-none" | "ctx-map" | "ctx-full"
+export type TechniqueId =
+  | "single"
+  | "bo3"
+  | "verify"
+  | "greedy"
+  | "ctx-none"
+  | "ctx-map"
+  | "ctx-full"
+  | "taste-off"
+  | "taste-on"
 
 export interface TechniqueBenchConfig {
   readonly kind: "technique"
@@ -106,7 +117,10 @@ export const benchConfigs: readonly BenchConfig[] = [
   { kind: "technique", id: "vllm-verify", technique: "verify" },
   { kind: "technique", id: "vllm-ctx-none", technique: "ctx-none" },
   { kind: "technique", id: "vllm-ctx-map", technique: "ctx-map" },
-  { kind: "technique", id: "vllm-ctx-full", technique: "ctx-full" }
+  { kind: "technique", id: "vllm-ctx-full", technique: "ctx-full" },
+  // taste A/B: identical single shots, ± the learned-preferences system block
+  { kind: "technique", id: "taste-off", technique: "taste-off" },
+  { kind: "technique", id: "taste-on", technique: "taste-on" }
 ]
 
 export const configIds: readonly BenchConfigId[] = benchConfigs.map((c) => c.id)

@@ -21,6 +21,7 @@ Benchmark harness with two studies: engines/councils vs each other (blind-judged
 - `repoContext` tasks: JSON `prompt` excludes the files; the loader embeds all files for non-ctx configs (`rawPrompt` keeps the bare prompt for ctx variants)
 - `TECHNIQUE_PORT`/`TECHNIQUE_MODEL` env point technique configs at any serving endpoint (small-model lift studies); the caller owns that server. On llama-server the ctx must hold bo3's THREE CONCURRENT generations — serve with at least `-c 3*(prompt+maxTokens)` (65536 works for the gated set) or all candidates 500 with "Context size has been exceeded"
 - `council-v3` mirrors the production proxy's resample ladder (`packages/core/src/serve/council.ts`) — keep the two implementations in sync, and never let proxy-layer configs (council-*) see gate/hidden-test feedback; only `draftFormatViolations` + hard constraints (what the real proxy can compute)
+- Taste A/B: a task's `tasteRules` are NEVER sent to `taste-off` — that asymmetry is the measurement. `src/taste.ts`'s `renderTasteBlock` must stay byte-identical to `harness/extensions/taste.ts` (test-enforced), and `GENERIC_TASTE_RULES` (the regression payload for tasks without rules) must stay neutral to every existing gate's hidden checks — a rule that hints at a planted bug turns the regression measurement into a leak
 - One sample per cell — treat small deltas as noise; rerun before believing a surprise
 - Results directories are evidence: never edit or delete them
 

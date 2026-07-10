@@ -11,6 +11,7 @@ Source of truth for the user's pi harness. Everything here is symlinked into `~/
 - `prompts/` — prompt templates for the subagent extension (vendored from pi's bundled examples)
 - `extensions/omarchy-system-theme.ts` — syncs pi theme with omarchy
 - `extensions/verify-gate.ts` — after edit turns, runs the AGENTS.md-chain `## Verification` commands and feeds failures back to the model (bounded retries; `/verify` command). The measured biggest quality lever — keep it enabled
+- `extensions/taste.ts` — learns user preferences from their edits to agent-written files (snapshot → harvest diff → LLM distill into `~/.pi/agent/taste/rules.md`); injects a capped rule block per turn (`/taste` command). Enabled by measured evidence (pi-bench taste A/B: adherence 2/24 → 17/24, zero regression at the production tier); inert until rules are learned
 - `extensions/subagent/` — subagent extension (vendored from pi's bundled examples)
 - `packages.json` — pi extension packages; merged (never overwritten) into `~/.pi/agent/settings.json` by the installer
 
