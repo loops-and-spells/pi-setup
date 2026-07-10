@@ -10,7 +10,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "effect": "latest"
+    "effect": "latest",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "0.24.7"
   },
   "devDependencies": {
     "@types/bun": "latest",

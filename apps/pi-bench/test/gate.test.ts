@@ -218,9 +218,9 @@ describe("gate robustness", () => {
 })
 
 describe("symbol map", () => {
-  test("carries signatures and docstring contracts, drops bodies", () => {
+  test("carries signatures and docstring contracts, drops bodies", async () => {
     const files = task("gate-repo").repoContext?.files ?? {}
-    const map = symbolMap({ "pricing.py": files["pricing.py"] ?? "" })
+    const map = await symbolMap({ "pricing.py": files["pricing.py"] ?? "" })
     expect(map).toContain("def apply_discount(total_cents, percent)")
     expect(map).toContain("WHOLE-NUMBER percentage")
     expect(map).not.toContain("ROUND_HALF_UP)") // implementation detail stays out

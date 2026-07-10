@@ -97,6 +97,30 @@ production renderer at the shipped 1800-char budget. Raw outputs:
 Shipped: `taste.ts` injection enabled by default (inert until rules are
 learned; `/taste off` to disable), observation + auto-distill on.
 
+## Repo-map builder A/B (2026-07-10)
+
+The repo-map pi extension injects a symbol map (signatures + doc contracts,
+tree-sitter based, `@pi-setup/core`) of the cwd repo every turn. Before
+enabling, the shared builder was A/B'd on gate-repo — the task the original
+ctx study showed is lost without cross-file context — on a second model
+(Ornith-397B; the 2026-07-07 study used the 284B). `ctx-map` renders through
+the exact implementation production injects. Raw: `results/repomap-397b-1`.
+
+| Config | gate-repo | Tokens | Note |
+|---|---|---|---|
+| ctx-none (target file only) | 7/8 | 2503 | guessed a cross-module contract wrong |
+| ctx-map (tree-sitter symbol map) | **8/8** | 1119 | full recovery, fewer tokens |
+| ctx-full (all files verbatim) | **8/8** | 1061 | no better than the map |
+
+Replicates the 284B finding on a second model with the production builder:
+the map is worth exactly as much as the full files here. Live smoke: with the
+extension installed, pi answered a cross-file return type correctly with zero
+tool calls, straight from the injected map. Shipped enabled
+(`budgetChars: 12000` default; `/repomap off` to disable). Ops: the
+tree-sitter-wasms bash grammar loads but crashes at parse — the builder
+blacklists a crashing grammar per session and falls back to the measured
+regex extractors.
+
 ## Durable findings
 
 1. **Verification loops and best-of-N buy real IQ, and the smaller the model

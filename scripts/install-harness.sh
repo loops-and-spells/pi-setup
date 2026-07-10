@@ -61,6 +61,7 @@ done
 link "$HARNESS/extensions/omarchy-system-theme.ts" "$AGENT_DIR/extensions/omarchy-system-theme.ts"
 link "$HARNESS/extensions/verify-gate.ts" "$AGENT_DIR/extensions/verify-gate.ts"
 link "$HARNESS/extensions/taste.ts" "$AGENT_DIR/extensions/taste.ts"
+link "$HARNESS/extensions/repo-map.ts" "$AGENT_DIR/extensions/repo-map.ts"
 link "$HARNESS/extensions/subagent" "$AGENT_DIR/extensions/subagent"
 link "$REPO/apps/pi-council/index.ts" "$AGENT_DIR/extensions/pi-council.ts"
 

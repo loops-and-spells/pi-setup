@@ -1,7 +1,15 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { Console, Effect } from "effect"
-import { draftFormatViolations, engines, gpu, health, stopAll, systemd } from "@pi-setup/core"
+import {
+  buildSymbolMap,
+  draftFormatViolations,
+  engines,
+  gpu,
+  health,
+  stopAll,
+  systemd
+} from "@pi-setup/core"
 import { chat } from "./client"
 import {
   vllmEngineConfig,
@@ -515,32 +523,11 @@ const runSingle = async (task: BenchTask, configId: string, temperature: number)
 }
 
 /**
- * Compact symbol map: signatures + docstrings, no bodies. What a repo-map
- * harness would inject instead of whole files.
+ * Compact symbol map: signatures + doc contracts, no bodies — what the
+ * repo-map extension injects. Shared implementation in @pi-setup/core
+ * (tree-sitter based), so this config measures exactly what production ships.
  */
-export const symbolMap = (files: Readonly<Record<string, string>>): string => {
-  const out: string[] = []
-  for (const [rel, content] of Object.entries(files)) {
-    out.push(`### \`${rel}\``)
-    const lines = content.split("\n")
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] ?? ""
-      const sig = line.match(/^(\s*)(?:class|def)\s.*$/)
-      if (sig === null) continue
-      let entry = line.trim()
-      // multi-line signatures: append until the line that closes with ':'
-      let j = i
-      while (!/[:]\s*(#.*)?$/.test(lines[j] ?? "") && j < i + 5) {
-        j++
-        entry += ` ${(lines[j] ?? "").trim()}`
-      }
-      const doc = (lines[j + 1] ?? "").trim().match(/^[ru]*["']{3}(.*?)(?:["']{3})?$/)
-      out.push(doc?.[1] !== undefined && doc[1] !== "" ? `- \`${entry}\` — ${doc[1]}` : `- \`${entry}\``)
-    }
-    out.push("")
-  }
-  return out.join("\n")
-}
+export const symbolMap = buildSymbolMap
 
 /** ctx experiment: same task, three context renderings — none / symbol map / full files. */
 const runContextVariant = async (
@@ -559,7 +546,7 @@ const runContextVariant = async (
     mode === "none"
       ? renderFiles(target)
       : mode === "map"
-        ? `${renderFiles(target)}\n\n## Other project files (symbol map)\n\n${symbolMap(others)}`
+        ? `${renderFiles(target)}\n\n## Other project files (symbol map)\n\n${await symbolMap(others)}`
         : renderFiles(rc.files)
   const r = await chat({
     port: vllmEndpoint.port,
