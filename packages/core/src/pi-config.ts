@@ -34,14 +34,24 @@ const writeJson = (file: string, value: unknown): void => {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-/** Add the provider to ~/.pi/agent/models.json if it is not there yet. */
+/**
+ * Reconcile the provider entry in ~/.pi/agent/models.json with the repo
+ * definition. Adds it when missing and rewrites it when it differs —
+ * models.json is generated, never hand-edited, so any drift on a
+ * repo-managed provider is staleness, not user intent. (An add-only merge
+ * once left pi believing ornith-council had a 65k window against a 262k
+ * server: constant compaction + 1-token completions at the false boundary.)
+ */
 export const ensureProvider = (id: string, provider: PiProvider): Effect.Effect<void> =>
   Effect.gen(function* () {
     const models = readJson<PiModelsFile>(paths.pi.models)
-    if (models.providers[id] !== undefined) return
+    const current = models.providers[id]
+    if (current !== undefined && JSON.stringify(current) === JSON.stringify(provider)) return
     models.providers[id] = provider
     writeJson(paths.pi.models, models)
-    yield* Console.log(`Added provider "${id}" to ${paths.pi.models}`)
+    yield* Console.log(
+      `${current === undefined ? "Added" : "Updated"} provider "${id}" in ${paths.pi.models}`
+    )
   })
 
 /** Point pi at a provider/model pair (what switch-engine's python inline did). */
