@@ -64,6 +64,7 @@ link "$HARNESS/extensions/taste.ts" "$AGENT_DIR/extensions/taste.ts"
 link "$HARNESS/extensions/repo-map.ts" "$AGENT_DIR/extensions/repo-map.ts"
 link "$HARNESS/extensions/loop-guard.ts" "$AGENT_DIR/extensions/loop-guard.ts"
 link "$HARNESS/extensions/autonomy.ts" "$AGENT_DIR/extensions/autonomy.ts"
+link "$HARNESS/extensions/unreal.ts" "$AGENT_DIR/extensions/unreal.ts"
 link "$HARNESS/extensions/subagent" "$AGENT_DIR/extensions/subagent"
 link "$REPO/apps/pi-council/index.ts" "$AGENT_DIR/extensions/pi-council.ts"
 
